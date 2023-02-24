@@ -13,6 +13,8 @@ class Requester:
         self.filename = filename
         self.tracker_info = self.read_tracker()
 
+        self.send_request()
+
     def read_tracker(self) -> defaultdict[list]:
         info = defaultdict(list)
         with open("tracker.txt", "r") as f:
@@ -29,15 +31,16 @@ class Requester:
         return info
 
     def send_request(self) -> None:
-        header = struct.pack("!cqq", "R".encode(), 0, 0)
-        # Hard coded for now, need to have a for-loop to retrieve different parts
-        self.sock.sendto(
-            header + self.filename.encode(),
-            (
-                self.tracker_info[self.filename][0][1],
-                self.tracker_info[self.filename][0][2],
-            ),
-        )
+        header = struct.pack("!cII", "R".encode(), 0, 0)
+        for dest in self.tracker_info[self.filename]:
+            self.sock.sendto(
+                header + self.filename.encode(),
+                (
+                    dest[1],
+                    dest[2],
+                ),
+            )
+            print(f"Sent to {dest[1]} at port {dest[2]}")
 
 
 if __name__ == "__main__":
@@ -51,4 +54,3 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     requester = Requester(args.p, args.o)
-    requester.send_request()
