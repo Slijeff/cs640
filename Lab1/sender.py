@@ -35,6 +35,9 @@ class Sender:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Send packets")
     # use argparse to parse arguments
+    parser.add_argument(
+        "-p", help="The port on which the sender waits for requests", type=int
+    )
     args = parser.parse_args()
 
-    sender = Sender(5000, 5678, 0, 0, 0)
+    sender = Sender(args.p, 5678, 0, 0, 0)

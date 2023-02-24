@@ -1,6 +1,7 @@
 import argparse
 import socket
 from collections import defaultdict
+from typing import DefaultDict, Tuple, List
 import struct
 
 
@@ -15,7 +16,7 @@ class Requester:
 
         self.send_request()
 
-    def read_tracker(self) -> defaultdict[list]:
+    def read_tracker(self) -> DefaultDict[str, List[Tuple[int, str, int]]]:
         info = defaultdict(list)
         with open("tracker.txt", "r") as f:
             for line in f:
