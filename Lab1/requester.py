@@ -41,17 +41,23 @@ class Requester:
                     dest[2],
                 ),
             )
-            print(f"Sent to {dest[1]} at port {dest[2]}")
+            print(f"[Info] Sent to {dest[1]} at port {dest[2]}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Request packets")
     # use argparse to parse arguments
     parser.add_argument(
-        "-p", help="The port on which the requester waits for packets", type=int
+        "-p",
+        help="The port on which the requester waits for packets",
+        type=int,
+        required=True,
     )
     parser.add_argument(
-        "-o", help="The name of the file that is being requested", type=str
+        "-o",
+        help="The name of the file that is being requested",
+        type=str,
+        required=True,
     )
     args = parser.parse_args()
     requester = Requester(args.p, args.o)
