@@ -2,6 +2,9 @@ import argparse
 import socket
 import struct
 import math
+import time
+from typing import Literal
+from datetime import datetime
 
 
 class Sender:
@@ -24,7 +27,7 @@ class Sender:
         try:
             print(f"[Info] Waiting for request on port {self.listen_port}")
             packet, req_addr = self.sock.recvfrom(8192)
-            self.requester_address = req_addr
+            self.requester_address = req_addr[0]
             header = packet[:9]
             payload = packet[9:]
             headers = struct.unpack("!cII", header)
@@ -45,12 +48,15 @@ class Sender:
         filesize = len(content)
 
         headers = []
+        sequence_nos = []
         if filesize <= self.length:
             headers.append(
                 struct.pack(
                     "!cII", "D".encode(), socket.htonl(self.sequence_no), filesize
                 )
             )
+            sequence_nos.append(self.sequence_no)
+            self.sequence_no += filesize
         else:
             num_packets = math.ceil(filesize / self.length)
             last_payload_length = filesize % self.length
@@ -65,16 +71,58 @@ class Sender:
                             last_payload_length,
                         )
                     )
-                headers.append(
-                    struct.pack(
-                        "!cII",
-                        "D".encode(),
-                        socket.htonl(self.sequence_no),
-                        self.length,
+                    sequence_nos.append(self.sequence_no)
+                    self.sequence_no += last_payload_length
+                else:
+                    headers.append(
+                        struct.pack(
+                            "!cII",
+                            "D".encode(),
+                            socket.htonl(self.sequence_no),
+                            self.length,
+                        )
                     )
-                )
-                self.sequence_no += i * self.length
-        print(headers)
+                    sequence_nos.append(self.sequence_no)
+                    self.sequence_no += self.length
+
+        file_parts = []
+        for i in range(len(headers)):
+            file_parts.append(content[i * self.length : (i + 1) * self.length])
+
+        header_and_payload = [
+            header + payload for header, payload in zip(headers, file_parts)
+        ]
+
+        # send the packets with rate limit, don't need to wait for ACK
+        for i in range(len(header_and_payload)):
+            self.sock.sendto(
+                header_and_payload[i], (self.requester_address, self.requester_port)
+            )
+            self.log_info("D", sequence_nos[i], file_parts[i])
+            time.sleep(1 / self.rate)
+
+        # send END packet
+        self.sock.sendto(
+            struct.pack("!cII", "E".encode(), socket.htonl(self.sequence_no), 0),
+            (self.requester_address, self.requester_port),
+        )
+        self.log_info("E", self.sequence_no, b"")
+
+    def log_info(self, type: Literal["D", "E"], seq: int, payload: bytes) -> None:
+        if type == "D":
+            print(f"-----DATA Packet-----")
+            print(f"send time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
+            print(f"requester addr: {self.requester_address}: {self.requester_port}")
+            print(f"Sequence num: {seq}")
+            print(f"payload: {payload[:4].decode()}")
+            print(f"---------------------")
+        elif type == "E":
+            print(f"-----END Packet------")
+            print(f"send time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
+            print(f"requester addr: {self.requester_address}: {self.requester_port}")
+            print(f"Sequence num: {seq}")
+            print(f"payload: {payload.decode()}")
+            print(f"---------------------")
 
 
 if __name__ == "__main__":
