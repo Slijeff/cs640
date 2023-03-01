@@ -1,0 +1,4 @@
+*This is split1.txt.
+*This is split2.txt.*This is split1.txt.
+*This is split2.txt.*This is s*This is s*This is s*This is split1.txt.
+*This is split2.txt.
