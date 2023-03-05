@@ -25,7 +25,6 @@ class Sender:
 
     def listen_to_request(self) -> None:
         try:
-            print(f"[Info] Waiting for request on port {self.listen_port}")
             packet, req_addr = self.sock.recvfrom(8192)
             self.requester_address = req_addr[0]
             header = packet[:9]

@@ -15,6 +15,7 @@ class Requester:
         self.sock.bind((self.UDP_IP, self.receive_port))
         self.filename = filename
         self.tracker_info = self.read_tracker()
+        self.sender_ports = []
 
         self.send_request()
 
@@ -43,7 +44,6 @@ class Requester:
                     dest[2],
                 ),
             )
-            print(f"[Info] Sent to {dest[1]} at port {dest[2]}")
             self.receive_file(dest[1], dest[2])
     
     def receive_file(self,sender_address,sender_port) -> None:
@@ -52,6 +52,7 @@ class Requester:
         total_byte = 0        
         packet, req_addr = self.sock.recvfrom(8192)
         with open(self.filename,'a') as file:
+            self.sender_ports.append(req_addr[0])
             header = packet[:9]
             payload = packet[9:]
             headers = struct.unpack("!cII", header)
@@ -62,27 +63,22 @@ class Requester:
                     f"[Error] first packet recived should be a request with request type 'D', but got {request_type} instead."
                 )
             while request_type!="E":
-                try:
-                    self.log_info(sender_address, sender_port, "D", sequence, length, file_content)
-                    file.write(file_content.decode())
-                    Data_packet_num += 1
-                    total_byte += length
-                    self.sock.settimeout(60)
-                    packet, req_addr = self.sock.recvfrom(8192)
-                    self.sock.settimeout(None)
-                    header = packet[:9]
-                    payload = packet[9:]
-                    headers = struct.unpack("!cII", header)
-                    request_type, sequence, length, file_content = headers[0].decode(), socket.htonl(headers[1]), \
-                        headers[2], payload
-                except TimeoutError:
-                    print("[Error] Waited too long for the request, exiting...")
-                    exit()
-                    
+                self.log_info(sender_address, sender_port, "D", sequence, length, file_content)
+                file.write(file_content.decode())
+                Data_packet_num += 1
+                total_byte += length
+                packet, req_addr = self.sock.recvfrom(8192)
+                self.sender_ports.append(req_addr[0])
+                header = packet[:9]
+                payload = packet[9:]
+                headers = struct.unpack("!cII", header)
+                request_type, sequence, length, file_content = headers[0].decode(), socket.htonl(headers[1]), \
+                    headers[2], payload
         self.log_info(sender_address, sender_port, "E", sequence, length, b"")
         duration = int((time.time() - startTime) *1000)
-        avg_packet = int((duration/1000)/Data_packet_num)
+        avg_packet = round(Data_packet_num/(duration/1000))
         self.log_Summary(sender_address, sender_port,Data_packet_num,total_byte,duration,avg_packet)
+        
                 
 
     def log_info(self, sender_address: str, sender_port:str, type: Literal["D", "E"], seq: int, length:int, payload: bytes) -> None:
