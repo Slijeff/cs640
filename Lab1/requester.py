@@ -7,6 +7,7 @@ from typing import Literal
 from datetime import datetime
 import time
 
+
 class Requester:
     def __init__(self, port: int, filename: str) -> None:
         self.receive_port = port
@@ -45,25 +46,31 @@ class Requester:
                 ),
             )
             self.receive_file(dest[1], dest[2])
-    
-    def receive_file(self,sender_address,sender_port) -> None:
+
+    def receive_file(self, sender_address, sender_port) -> None:
         startTime = time.time()
         Data_packet_num = 0
-        total_byte = 0        
+        total_byte = 0
         packet, req_addr = self.sock.recvfrom(8192)
-        with open(self.filename,'a') as file:
+        with open(self.filename, "a") as file:
             self.sender_ports.append(req_addr[0])
             header = packet[:9]
             payload = packet[9:]
             headers = struct.unpack("!cII", header)
-            request_type, sequence, length, file_content = headers[0].decode(), socket.htonl(headers[1]), \
-                headers[2], payload
+            request_type, sequence, length, file_content = (
+                headers[0].decode(),
+                socket.htonl(headers[1]),
+                headers[2],
+                payload,
+            )
             if request_type != "D":
                 print(
                     f"[Error] first packet recived should be a request with request type 'D', but got {request_type} instead."
                 )
-            while request_type!="E":
-                self.log_info(sender_address, sender_port, "D", sequence, length, file_content)
+            while request_type != "E":
+                self.log_info(
+                    sender_address, sender_port, "D", sequence, length, file_content
+                )
                 file.write(file_content.decode())
                 Data_packet_num += 1
                 total_byte += length
@@ -72,16 +79,33 @@ class Requester:
                 header = packet[:9]
                 payload = packet[9:]
                 headers = struct.unpack("!cII", header)
-                request_type, sequence, length, file_content = headers[0].decode(), socket.htonl(headers[1]), \
-                    headers[2], payload
+                request_type, sequence, length, file_content = (
+                    headers[0].decode(),
+                    socket.htonl(headers[1]),
+                    headers[2],
+                    payload,
+                )
         self.log_info(sender_address, sender_port, "E", sequence, length, b"")
-        duration = int((time.time() - startTime) *1000)
-        avg_packet = round(Data_packet_num/(duration/1000))
-        self.log_Summary(sender_address, sender_port,Data_packet_num,total_byte,duration,avg_packet)
-        
-                
+        duration = int((time.time() - startTime) * 1000)
+        avg_packet = round(Data_packet_num / (duration / 1000))
+        self.log_Summary(
+            sender_address,
+            sender_port,
+            Data_packet_num,
+            total_byte,
+            duration,
+            avg_packet,
+        )
 
-    def log_info(self, sender_address: str, sender_port:str, type: Literal["D", "E"], seq: int, length:int, payload: bytes) -> None:
+    def log_info(
+        self,
+        sender_address: str,
+        sender_port: str,
+        type: Literal["D", "E"],
+        seq: int,
+        length: int,
+        payload: bytes,
+    ) -> None:
         if type == "D":
             print(f"-----DATA Packet-----")
             print(f"recv time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
@@ -98,15 +122,24 @@ class Requester:
             print(f"length:: {length}")
             print(f"payload: {payload.decode()}")
             print(f"---------------------")
-            
-    def log_Summary(self, sender_address: str, sender_port:str, Data_packet_num: int, total_byte:int, duration: int, avg_packet: int) -> None:
+
+    def log_Summary(
+        self,
+        sender_address: str,
+        sender_port: str,
+        Data_packet_num: int,
+        total_byte: int,
+        duration: int,
+        avg_packet: int,
+    ) -> None:
         print("Summary")
         print(f"sender addr: {sender_address}: {sender_port}")
         print(f"Total Data packets: {Data_packet_num}")
         print(f"total Data bytes: {total_byte}")
         print(f"Average packets/second: {avg_packet}")
         print(f"Duration of the test: {duration}ms")
-            
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Request packets")
     # use argparse to parse arguments
