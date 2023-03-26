@@ -38,6 +38,12 @@ class Emulator:
         self.port = port
         self.queue_size = queue_size
         self.log_name = log_name
+        self.UDP_IP = "127.0.0.1"
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind((self.UDP_IP, self.port))
+        self.sock.settimeout(120)
+        # making it non-blocking
+        self.sock.setblocking(0)
 
         # format: (destination, next_hop, delay, loss_prob)
         self.forwarding_table = self.read_forwarding_table()
@@ -69,12 +75,25 @@ class Emulator:
         return entries
 
     def route_packet(self, incoming_packet: bytes) -> None:
+        
         # unpack the packet
         header = incoming_packet[:17]
         payload = incoming_packet[17:]
         priority, src_addr, src_port, dest_addr, dest_port, length = struct.unpack(
             STRUCT_FORMAT, header
         )
+        try:
+            if priority == 1:
+                self.high_priority_queue.enqueue(incoming_packet)
+            elif priority == 2:
+                self.medium_priority_queue.enqueue(incoming_packet)
+            elif priority == 3:
+                self.low_priority_queue.enqueue(incoming_packet)
+        except:
+            # TODO: logging when queue is full
+            pass
+        
+
 
 
 if __name__ == "__main__":
