@@ -48,7 +48,6 @@ class Emulator:
         self.UDP_IP = "127.0.0.1"
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.UDP_IP, self.port))
-        self.sock.settimeout(120)
         # making it non-blocking
         self.sock.setblocking(False)
         self.currently_delaying: Queue_Entry = None
@@ -59,6 +58,8 @@ class Emulator:
         self.high_priority_queue = NetworkQueue(self.queue_size)
         self.medium_priority_queue = NetworkQueue(self.queue_size)
         self.low_priority_queue = NetworkQueue(self.queue_size)
+
+        self.start()
 
     def read_forwarding_table(self) -> List[Table_Entry]:
         entries: List[Table_Entry] = []
@@ -118,10 +119,11 @@ class Emulator:
                     self.currently_delaying = Q.dequeue()
                     break
         else:
-            # decide if the delay is over
+            # decide if the delay is over and should be forwarded
             if time() * 1000 - self.currently_delaying[1] <= self.lookup_by_destination(self.currently_delaying[2]):
                 # forward
-                self.sock.sendto(self.currently_delaying[0], self.currently_delaying[3])
+                self.sock.sendto(
+                    self.currently_delaying[0], self.currently_delaying[3])
                 self.currently_delaying = None
 
     def lookup_by_destination(self, destination: Address) -> Union[Table_Entry, None]:
@@ -129,6 +131,14 @@ class Emulator:
             if destination == e[0]:
                 return e
         return None
+
+    def start(self) -> None:
+        while 1:
+            try:
+                packet, sender_addr = self.sock.recvfrom(8192)
+                self.route_packet(packet)
+            except:
+                pass
 
 
 if __name__ == "__main__":
