@@ -66,6 +66,7 @@ class Sender:
         if filesize <= self.length:
             innerheader = struct.pack(
                     "!cII", "D".encode(), socket.htonl(self.sequence_no), filesize)
+            # not sure if it's the correct way to pack outter header
             headers.append(
                     struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(dest_addr), socket.htonl(dest_port), \
                         socket.htonl(src_addr),socket.htonl(src_port), len(innerheader))
@@ -102,20 +103,38 @@ class Sender:
         file_parts = []
         for i in range(len(headers)):
             file_parts.append(content[i * self.length : (i + 1) * self.length])
-
+        
+        # add End packet 
+        finalInner = struct.pack("!cII", "E".encode(), socket.htonl(self.sequence_no), 0)
+        innerheaders.append(finalInner)
+        finalHeader = struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(dest_addr), socket.htonl(dest_port), \
+                            socket.htonl(src_addr),socket.htonl(src_port), len(finalInner))
+        headers.append(finalHeader)
+        file_parts.append("")
+        
         header_and_payload = [
             header + innerheader + payload for header, innerheader, payload in zip(headers, innerheaders,file_parts)
         ]
-
-        # send the packets with rate limit, don't need to wait for ACK
-        for i in range(len(header_and_payload)):
-            self.sock.sendto(
-                header_and_payload[i], (self.requester_address, self.host_port)
-            )
-            self.total_packet_sent +=1
-            trial = 1
-            ack = False
-            while trial <=5 and ack == False:
+        
+        index = 0
+        window_num = 0
+        # send the packets with rate limit
+        while index <= len(header_and_payload):
+            # send a full window or remaining packets
+            window = min(window_size, len(header_and_payload) - window_size * window_num)
+            for i in range(window):
+                self.sock.sendto(
+                    #requester and emulator should all use same address, it should work for this project?
+                    header_and_payload[index], (self.requester_address, self.host_port) 
+                )
+                index += 1
+                self.total_packet_sent += 1
+                time.sleep(1 / self.rate)
+            
+            window_num += 1
+            # try to receive all returning ack packets
+            received_ack = []
+            for i in range(window):
                 try:
                     self.sock.settimeout(self.timeout)
                     packet, _ = self.sock.recvfrom(8192)
@@ -124,37 +143,55 @@ class Sender:
                     header = outterPayload[:9]
                     headers = struct.unpack("!cII", header)
                     request_type, seq_no = headers[0].decode(),headers[1:5].decode()
-                    if request_type != "A":
-                        print(
-                            f"[Error] Should get a ack packet with request type 'A', but got {request_type} instead."
-                            )
-                    elif seq_no != i+1:
-                        print(
-                            f"[Error] Wrong sequnence number in ack packet, should be {i+1}, but got {request_type} instead."
-                            )
-                    else:
-                        ack = True
+                    #get all ack packets seq_no
+                    if request_type == "A":
+                        received_ack.append(seq_no -1)
                 except TimeoutError:
+                    pass
+            
+            # if there are missing packets, try to resend all missing packets
+            if len(received_ack) != window:
+                missing =  [i for i in range(index-window+1,index+1) if i not in received_ack]
+                for i in missing:
                     self.sock.sendto(
-                        header_and_payload[i], (self.requester_address, self.host_port)
+                        header_and_payload[index-window+i], (self.requester_address, self.host_port)
                     )
-                    self.total_retransmit +=1
-                    self.total_packet_sent +=1
-                    trial +=1
-            if trial > 5 and ack == False:
-                print(
-                    f"[Error] transmission failed for packet with sequnence number {i+1}, moving to next packet."
-                )
-                        
-            time.sleep(1 / self.rate)
+                    trial = 1
+                    ack = False
+                    while trial <=5 and ack == False:
+                        try:
+                            self.sock.settimeout(self.timeout)
+                            packet, _ = self.sock.recvfrom(8192)
+                            self.sock.settimeout(None)
+                            outterPayload = packet[17:]
+                            header = outterPayload[:9]
+                            headers = struct.unpack("!cII", header)
+                            request_type, seq_no = headers[0].decode(),headers[1:5].decode()
+                            if request_type != "A":
+                                print(
+                                    f"[Error] Should get a ack packet with request type 'A', but got {request_type} instead."
+                                    )
+                            elif seq_no != index + 1:
+                                print(
+                                    f"[Error] Wrong sequnence number in ack packet, should be {index+1}, but got {seq_no} instead."
+                                    )
+                            else:
+                                ack = True
+                        except TimeoutError:
+                            self.sock.sendto(
+                                header_and_payload[index-window+i], (self.requester_address, self.host_port)
+                            )
+                            time.sleep(1 / self.rate)
+                            self.total_retransmit +=1
+                            self.total_packet_sent +=1
+                            trial +=1
+                            
+                    if trial > 5 and ack == False:
+                        print(
+                            f"[Error] transmission failed for packet with sequnence number {i+1}, moving to next packet."
+                        )
 
         # send END packet
-        finalInner = struct.pack("!cII", "E".encode(), socket.htonl(self.sequence_no), 0)
-        self.sock.sendto(
-             struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(dest_addr), socket.htonl(dest_port), \
-                            socket.htonl(src_addr),socket.htonl(src_port), len(innerheader)) + finalInner,
-            (self.requester_address, self.requester_port),
-        )
         self.log_info("E", self.sequence_no, b"")
 
     def log_info(self, type: Literal["D", "E"], seq: int, payload: bytes) -> None:
@@ -171,6 +208,7 @@ class Sender:
             print(f"requester addr: {self.requester_address}: {self.requester_port}")
             print(f"Sequence num: {seq}")
             print(f"payload: {payload.decode()}")
+            print(f"loss rate:{self.total_retransmit/self.total_packet_sent * 100} %")
             print(f"---------------------")
 
 
