@@ -4,6 +4,7 @@ import struct
 from typing import List, Tuple, Union
 from collections import deque
 from time import time
+import logging
 
 Address = Tuple[str, int]
 Table_Entry = Tuple[Tuple, Tuple, int, int]
@@ -58,6 +59,11 @@ class Emulator:
         self.high_priority_queue = NetworkQueue(self.queue_size)
         self.medium_priority_queue = NetworkQueue(self.queue_size)
         self.low_priority_queue = NetworkQueue(self.queue_size)
+        self.end_packet_queue = NetworkQueue(self.queue_size)
+
+        logging.basicConfig(
+            format='[%(asctime)s]\t%(message)s', filename=self.log_name, level=logging.DEBUG)
+        logging.info("Emulator started on port %d", self.port)
 
         self.start()
 
@@ -67,7 +73,6 @@ class Emulator:
         with open(self.filename, "r") as f:
             for line in f:
                 # Find our own emulator
-                # TODO: not sure if this is the right way to do it
                 if (
                     line
                     and socket.gethostname() == line.split(" ")[0]
@@ -95,8 +100,8 @@ class Emulator:
         destination = (dest_addr, int(dest_port))
 
         if not self.lookup_by_destination(destination):
-            # TODO: logging when destination not in forwarding_table
-            pass
+            self.log("No forwarding entry found", src_addr, src_port,
+                     dest_addr, dest_port, priority, length)
 
         try:
             if priority == 1:
@@ -109,8 +114,14 @@ class Emulator:
                 self.low_priority_queue.enqueue(
                     incoming_packet, destination, self.lookup_by_destination(destination))
         except:
-            # TODO: logging when queue is full
-            pass
+            # test if is END packet
+            packet_type, seq, _ = struct.unpack("!cII", payload)
+            if packet_type == b"E":
+                self.end_packet_queue.enqueue(
+                    incoming_packet, destination, self.lookup_by_destination(destination))
+
+            self.log(f"Dropped because queue {priority} is full",
+                     src_addr, src_port, dest_addr, dest_port, priority, length)
 
         # get a packet from the queues if there's no currently delayed packet
         if not self.currently_delaying:
@@ -127,10 +138,19 @@ class Emulator:
                 self.currently_delaying = None
 
     def lookup_by_destination(self, destination: Address) -> Union[Table_Entry, None]:
+        """Returns the routing table entry that has the given destination address.
+
+        If there is no such entry, returns None.
+
+        """
         for e in self.forwarding_table:
             if destination == e[0]:
                 return e
         return None
+
+    def log(self, message: str, src_addr: str, src_port: int, dest_addr: str, dest_port: int, priority: int, payload_size: int) -> None:
+        logging.info("%s\t[src-%s:%d, dst-%s:%d, priority-%d, payload_size-%d]",
+                     message, src_addr, src_port, dest_addr, dest_port, priority, payload_size)
 
     def start(self) -> None:
         while 1:
