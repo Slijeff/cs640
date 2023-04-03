@@ -51,7 +51,9 @@ class Emulator:
         self.sock.bind((self.UDP_IP, self.port))
         # making it non-blocking
         self.sock.setblocking(False)
-        self.currently_delaying: Queue_Entry = None
+
+        # format: (packet, time of enque, destination, next_hop)
+        self.currently_delaying: Union[Queue_Entry, None] = None
 
         # format: (destination, next_hop, delay, loss_prob)
         self.forwarding_table = self.read_forwarding_table()
@@ -102,23 +104,24 @@ class Emulator:
         if not self.lookup_by_destination(destination):
             self.log("No forwarding entry found", src_addr, src_port,
                      dest_addr, dest_port, priority, length)
+            return
 
         try:
             if priority == 1:
                 self.high_priority_queue.enqueue(
-                    incoming_packet, destination, self.lookup_by_destination(destination))
+                    incoming_packet, destination, self.lookup_by_destination(destination)[1])
             elif priority == 2:
                 self.medium_priority_queue.enqueue(
-                    incoming_packet, destination, self.lookup_by_destination(destination))
+                    incoming_packet, destination, self.lookup_by_destination(destination)[1])
             elif priority == 3:
                 self.low_priority_queue.enqueue(
-                    incoming_packet, destination, self.lookup_by_destination(destination))
+                    incoming_packet, destination, self.lookup_by_destination(destination)[1])
         except:
             # test if is END packet
             packet_type, seq, _ = struct.unpack("!cII", payload)
             if packet_type == b"E":
                 self.end_packet_queue.enqueue(
-                    incoming_packet, destination, self.lookup_by_destination(destination))
+                    incoming_packet, destination, self.lookup_by_destination(destination)[1])
 
             self.log(f"Dropped because queue {priority} is full",
                      src_addr, src_port, dest_addr, dest_port, priority, length)
@@ -131,7 +134,7 @@ class Emulator:
                     break
         else:
             # decide if the delay is over and should be forwarded
-            if time() * 1000 - self.currently_delaying[1] <= self.lookup_by_destination(self.currently_delaying[2]):
+            if time() * 1000 - self.currently_delaying[1] <= self.lookup_by_destination(self.currently_delaying[2])[2]:
                 # forward
                 self.sock.sendto(
                     self.currently_delaying[0], self.currently_delaying[3])
