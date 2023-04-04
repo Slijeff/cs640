@@ -6,15 +6,19 @@ import struct
 from typing import Literal
 from datetime import datetime
 import time
-
+STRUCT_FORMAT = "!cIHIHI"
 
 class Requester:
-    def __init__(self, port: int, filename: str) -> None:
+    def __init__(self, port: int, filename: str, host_name: str, host_port: int, \
+        window: int) -> None:
         self.receive_port = port
         self.UDP_IP = "127.0.0.1"
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((self.UDP_IP, self.receive_port))
+        self.sock.bind((self.UDP_IP, self.host_port))
         self.filename = filename
+        self.host_name = host_name
+        self.host_port = host_port
+        self.window = window
         self.tracker_info = self.read_tracker()
         self.sender_ports = []
 
@@ -36,13 +40,15 @@ class Requester:
         return info
 
     def send_request(self) -> None:
-        header = struct.pack("!cII", "R".encode(), 0, 0)
+        innerheader = struct.pack("!cII", "R".encode(), 0, self.window)
+        header = struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(self.UDP_IP), socket.htonl(self.receive_port), \
+                            socket.htonl(dest[1]),socket.htonl(dest[2]), len(innerheader))
         for dest in self.tracker_info[self.filename]:
             self.sock.sendto(
-                header + self.filename.encode(),
+                header + innerheader + self.filename.encode(),
                 (
                     dest[1],
-                    dest[2],
+                    self.host_port
                 ),
             )
             self.receive_file(dest[1], dest[2])
@@ -54,8 +60,9 @@ class Requester:
         packet, req_addr = self.sock.recvfrom(8192)
         with open(self.filename, "a") as file:
             self.sender_ports.append(req_addr[0])
-            header = packet[:9]
-            payload = packet[9:]
+            outterPayload = packet[17:]
+            header = outterPayload[:9]
+            payload = outterPayload[9:]
             headers = struct.unpack("!cII", header)
             request_type, sequence, length, file_content = (
                 headers[0].decode(),
@@ -76,8 +83,9 @@ class Requester:
                 total_byte += length
                 packet, req_addr = self.sock.recvfrom(8192)
                 self.sender_ports.append(req_addr[0])
-                header = packet[:9]
-                payload = packet[9:]
+                outterPayload = packet[17:]
+                header = outterPayload[:9]
+                payload = outterPayload[9:]
                 headers = struct.unpack("!cII", header)
                 request_type, sequence, length, file_content = (
                     headers[0].decode(),
@@ -155,5 +163,23 @@ if __name__ == "__main__":
         type=str,
         required=True,
     )
+    parser.add_argument(
+        "-f",
+        help="The host name of the emulator",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "-e",
+        help="The port of the emulator",
+        type=int,
+        required=True,
+    )
+    parser.add_argument(
+        "-w",
+        help="the requester's window size",
+        type=int,
+        required=True,
+    )
     args = parser.parse_args()
-    requester = Requester(args.p, args.o)
+    requester = Requester(args.p, args.o, args.f, args.e, args.w)
