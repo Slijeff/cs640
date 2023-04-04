@@ -98,7 +98,8 @@ class Emulator:
         priority, src_addr, src_port, dest_addr, dest_port, length = struct.unpack(
             STRUCT_FORMAT, header
         )
-
+        src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
+        dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
         destination = (dest_addr, int(dest_port))
 
         if not self.lookup_by_destination(destination):
