@@ -12,7 +12,6 @@ class Requester:
     def __init__(self, port: int, filename: str, host_name: str, host_port: int, \
         window: int) -> None:
         self.receive_port = port
-        # should be consistent with emulator's implementation?
         self.UDP_IP = "127.0.0.1"
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.UDP_IP, self.receive_port))
