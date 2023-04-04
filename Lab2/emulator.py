@@ -99,6 +99,9 @@ class Emulator:
             STRUCT_FORMAT, header
         )
 
+        src_addr = socket.inet_ntoa(src_addr)
+        dest_addr = socket.inet_ntoa(dest_addr)
+
         destination = (dest_addr, int(dest_port))
 
         if not self.lookup_by_destination(destination):
