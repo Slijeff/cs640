@@ -14,7 +14,7 @@ class Requester:
         self.receive_port = port
         self.UDP_IP = "127.0.0.1"
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((self.UDP_IP, self.host_port))
+        self.sock.bind((self.UDP_IP, self.receive_port))
         self.filename = filename
         self.host_name = host_name
         self.host_port = host_port
@@ -40,10 +40,12 @@ class Requester:
         return info
 
     def send_request(self) -> None:
-        innerheader = struct.pack("!cII", "R".encode(), 0, self.window)
-        header = struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(self.UDP_IP), socket.htonl(self.receive_port), \
-                            socket.htonl(dest[1]),socket.htonl(dest[2]), len(innerheader))
         for dest in self.tracker_info[self.filename]:
+            innerheader = struct.pack("!cII", "R".encode(), 0, self.window)
+            send_addr = int.from_bytes(socket.inet_aton(self.UDP_IP), byteorder='big')
+            recv_addr = int.from_bytes(socket.inet_aton(dest[1]), byteorder='big')
+            header = struct.pack(STRUCT_FORMAT, "1".encode(),send_addr, self.receive_port, \
+                        recv_addr,dest[2], len(innerheader))
             self.sock.sendto(
                 header + innerheader + self.filename.encode(),
                 (
@@ -93,6 +95,7 @@ class Requester:
                     headers[2],
                     payload,
                 )
+                
         self.log_info(sender_address, sender_port, "E", sequence, length, b"")
         duration = int((time.time() - startTime) * 1000)
         avg_packet = round(Data_packet_num / (duration / 1000))

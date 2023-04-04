@@ -9,7 +9,7 @@ STRUCT_FORMAT = "!cIHIHI"
 
 class Sender:
     def __init__(
-        self, port: int, req_port: int, rate: int, seq_no: int, length: int, priority: int, \
+        self, port: int, req_port: int, rate: int, seq_no: int, length: int, priority: str, \
             host_name: str, host_port: int, timeout:int 
     ) -> None:
         self. total_packet_sent = 0
@@ -27,7 +27,6 @@ class Sender:
         self.timeout = timeout
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.UDP_IP, self.listen_port))
-        self.sock.settimeout(60)
         self.listen_to_request()
 
     def listen_to_request(self) -> None:
@@ -40,20 +39,20 @@ class Sender:
             payload = outterPayload[9:]
             headers = struct.unpack("!cII", header)
             outterHeaders = struct.unpack(STRUCT_FORMAT, outterHeader)
-            priority, src_addr, src_port, dest_addr, dest_port,length = outterHeaders[0].decode(), \
-                outterHeaders[1:5].decode(),outterHeaders[5:7].decode(), outterHeaders[7:11].decode(), \
-                outterHeaders[11:13].decode(), outterHeaders[13:17].decode()
-            request_type, file_requested, window_size = headers[0].decode(), payload.decode(),headers[5:].decode()
+            _, src_addr, src_port, dest_addr, dest_port,_ = outterHeaders
+            src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
+            dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
+            request_type, file_requested, window_size = headers[0].decode(), payload.decode(),headers[2]
             if request_type != "R":
                 print(
                     f"[Error] Should get a request with request type 'R', but got {request_type} instead."
                 )
-            self.send_file(file_requested, priority, src_addr, src_port, dest_addr, dest_port, length, window_size)
+            self.send_file(file_requested, src_addr, src_port, dest_addr, dest_port, window_size)
         except TimeoutError:
             print("[Error] Waited too long for the request, exiting...")
 
-    def send_file(self, filename: str, priority: int, src_addr: int, src_port: int, \
-        dest_addr: int, dest_port: int, length: int, window_size:int) -> None:
+    def send_file(self, filename: str, src_addr: int, src_port: int, \
+        dest_addr: int, dest_port: int, window_size:int) -> None:
         # read in the requested file
         content = b""
         with open(filename, "r") as f:
@@ -67,9 +66,11 @@ class Sender:
             innerheader = struct.pack(
                     "!cII", "D".encode(), socket.htonl(self.sequence_no), filesize)
             # not sure if it's the correct way to pack outter header
+            send_addr = int.from_bytes(socket.inet_aton(dest_addr), byteorder='big')
+            recv_addr = int.from_bytes(socket.inet_aton(src_addr), byteorder='big')
             headers.append(
-                    struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(dest_addr), socket.htonl(dest_port), \
-                        socket.htonl(src_addr),socket.htonl(src_port), len(innerheader))
+                    struct.pack(STRUCT_FORMAT, self.priority.encode(),send_addr, dest_port, \
+                        recv_addr,src_port, len(innerheader)+filesize)
             )
             sequence_nos.append(self.sequence_no)
             innerheaders.append(innerheader)
@@ -83,8 +84,8 @@ class Sender:
                     innerheader = struct.pack(
                             "!cII", "D".encode(), socket.htonl(self.sequence_no), last_payload_length)
                     headers.append(
-                        struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(dest_addr), socket.htonl(dest_port), \
-                            socket.htonl(src_addr),socket.htonl(src_port), len(innerheader))
+                        struct.pack(STRUCT_FORMAT, self.priority.encode(),send_addr, dest_port, \
+                            recv_addr,src_port, len(innerheader)+last_payload_length)
                     )
                     sequence_nos.append(self.sequence_no)
                     self.sequence_no += 1
@@ -93,8 +94,8 @@ class Sender:
                     innerheader = struct.pack(
                             "!cII", "D".encode(), socket.htonl(self.sequence_no), self.length)
                     headers.append(
-                        struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(dest_addr), socket.htonl(dest_port), \
-                            socket.htonl(src_addr),socket.htonl(src_port), len(innerheader))
+                        struct.pack(STRUCT_FORMAT, self.priority.encode(),send_addr, dest_port, \
+                            recv_addr,src_port, len(innerheader)+self.length)
                     )
                     sequence_nos.append(self.sequence_no)
                     self.sequence_no += 1
@@ -107,8 +108,8 @@ class Sender:
         # add End packet 
         finalInner = struct.pack("!cII", "E".encode(), socket.htonl(self.sequence_no), 0)
         innerheaders.append(finalInner)
-        finalHeader = struct.pack(STRUCT_FORMAT, socket.htonl(self.priority),socket.htonl(dest_addr), socket.htonl(dest_port), \
-                            socket.htonl(src_addr),socket.htonl(src_port), len(finalInner))
+        finalHeader = struct.pack(STRUCT_FORMAT, self.priority.encode(),send_addr, dest_port, \
+                            recv_addr,src_port, len(innerheader)+len(finalHeader))
         headers.append(finalHeader)
         file_parts.append("")
         
