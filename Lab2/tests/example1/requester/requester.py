@@ -12,7 +12,8 @@ class Requester:
     def __init__(self, port: int, filename: str, host_name: str, host_port: int, \
         window: int) -> None:
         self.receive_port = port
-        self.UDP_IP = socket.gethostbyname(socket.gethostname())
+        # should be consistent with emulator's implementation?
+        self.UDP_IP = "127.0.0.1"
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.UDP_IP, self.receive_port))
         self.filename = filename
@@ -41,7 +42,6 @@ class Requester:
 
     def send_request(self) -> None:
         for dest in self.tracker_info[self.filename]:
-            print(self.window)
             innerheader = struct.pack("!cII", "R".encode(), 0, self.window)
             send_addr = int.from_bytes(socket.inet_aton(self.UDP_IP), byteorder='big')
             recv_addr = int.from_bytes(socket.inet_aton(dest[1]), byteorder='big')
@@ -60,51 +60,43 @@ class Requester:
         startTime = time.time()
         Data_packet_num = 0
         total_byte = 0
-        log_store =[]
+        packet, req_addr = self.sock.recvfrom(8192)
         with open(self.filename, "a") as file:
-            request_type = "D"
+            self.sender_ports.append(req_addr[0])
+            outterPayload = packet[17:]
+            header = outterPayload[:9]
+            payload = outterPayload[9:]
+            headers = struct.unpack("!cII", header)
+            request_type, sequence, length, file_content = (
+                headers[0].decode(),
+                socket.htonl(headers[1]),
+                headers[2],
+                payload,
+            )
+            if request_type != "D":
+                print(
+                    f"[Error] first packet recived should be a request with request type 'D', but got {request_type} instead."
+                )
             while request_type != "E":
+                self.log_info(
+                    sender_address, sender_port, "D", sequence, length, file_content
+                )
+                file.write(file_content.decode())
+                Data_packet_num += 1
+                total_byte += length
                 packet, req_addr = self.sock.recvfrom(8192)
-                outterHeader = packet[:17]
-                _, src_addr, src_port, dest_addr, dest_port,_ = struct.unpack(STRUCT_FORMAT, outterHeader)
-                src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
-                dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
-                print(dest_addr)
-                if dest_addr!= self.UDP_IP:
-                    print("Received Packet dest addr not consistent with self address, expect ",self.UDP_IP,\
-                        "received" , dest_addr)
-                else:
-                    self.sender_ports.append(req_addr[0])
-                    outterPayload = packet[17:]
-                    header = outterPayload[:9]
-                    payload = outterPayload[9:]
-                    headers = struct.unpack("!cII", header)
-                    request_type, sequence, length, file_content = (
-                        headers[0].decode(),
-                        socket.htonl(headers[1]),
-                        headers[2],
-                        payload,
-                    )
-                    if Data_packet_num == 0 and request_type != "D":
-                        print(
-                            f"[Error] first packet recived should be a request with request type 'D', but got {request_type} instead."
-                        )
-                    
-                    #send ACK
-                    innerheader = struct.pack("!cII", "A".encode(), socket.htonl(sequence), 0)
-                    outerheader = struct.pack(STRUCT_FORMAT, "1".encode(),int.from_bytes(socket.inet_aton(dest_addr), byteorder='big'), dest_port, \
-                            int.from_bytes(socket.inet_aton(src_addr), byteorder='big'),src_port, len(innerheader))
-                    self.sock.sendto(
-                        outerheader+innerheader, (socket.gethostbyname(self.host_name), self.host_port) 
-                    )
-                    file.write(file_content.decode())
-                    Data_packet_num += 1
-                    total_byte += length
-                    log_store.append([sender_address, sender_port, "D", sequence, length, file_content])
-
-        for loginfo in log_store:
-            self.log_info(loginfo[0],loginfo[1],loginfo[2],loginfo[3],loginfo[4],loginfo[5])
-            
+                self.sender_ports.append(req_addr[0])
+                outterPayload = packet[17:]
+                header = outterPayload[:9]
+                payload = outterPayload[9:]
+                headers = struct.unpack("!cII", header)
+                request_type, sequence, length, file_content = (
+                    headers[0].decode(),
+                    socket.htonl(headers[1]),
+                    headers[2],
+                    payload,
+                )
+                
         self.log_info(sender_address, sender_port, "E", sequence, length, b"")
         duration = int((time.time() - startTime) * 1000)
         avg_packet = round(Data_packet_num / (duration / 1000))
