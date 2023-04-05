@@ -137,14 +137,14 @@ class Emulator:
 
         # get a packet from the queues if there's no currently delayed packet
         if not self.currently_delaying:
-            for Q in [self.high_priority_queue, self.medium_priority_queue, self.low_priority_queue]:
+            for Q in [self.high_priority_queue, self.medium_priority_queue, self.low_priority_queue, self.end_packet_queue]:
                 if Q.peek():
                     self.currently_delaying = Q.dequeue()
                     break
         else:
             # decide if the delay is over and should be forwarded
             if time() * 1000 - self.currently_delaying[1] >= self.currently_delaying[2][2]:
-                if random.random() > self.currently_delaying[2][3]:
+                if random.random()*100 > self.currently_delaying[2][3]:
                     # forward according to loss_prob
                     self.sock.sendto(
                         self.currently_delaying[0], self.currently_delaying[2][0])
