@@ -5,10 +5,11 @@ from typing import List, Tuple, Union
 from collections import deque
 from time import time
 import logging
+import random
 
 Address = Tuple[str, int]
 Table_Entry = Tuple[Tuple, Tuple, int, int]
-Queue_Entry = Tuple[bytes, float, Address, Address]
+Queue_Entry = Tuple[bytes, float, Table_Entry]
 STRUCT_FORMAT = "!cIHIHI"
 
 
@@ -21,10 +22,11 @@ class NetworkQueue:
     def __len__(self) -> int:
         return len(self.queue)
 
-    def enqueue(self, packet: bytes, dest: Address, hop: Address) -> None:
+    def enqueue(self, packet: bytes, entry: Table_Entry, source: Address, pri: int, length: int) -> None:
         if len(self.queue) < self.queue_size:
             # includes current time when enqueuing in miliseconds
-            self.queue.appendleft((packet, time() * 1000, dest, hop))
+            self.queue.appendleft(
+                (packet, time() * 1000, entry, source, pri, length))
         else:
             raise Exception("Queue is full")
 
@@ -52,12 +54,11 @@ class Emulator:
         # making it non-blocking
         self.sock.setblocking(False)
 
-        # format: (packet, time of enque, destination, next_hop)
+        # format: Queue_Entry -> (packet, time of enque, Table_Entry, source, priority, length)
         self.currently_delaying: Union[Queue_Entry, None] = None
 
-        # format: (destination, next_hop, delay, loss_prob)
+        # format: Table_Entry -> (destination, next_hop, delay, loss_prob)
         self.forwarding_table = self.read_forwarding_table()
-        print(self.forwarding_table)
 
         self.high_priority_queue = NetworkQueue(self.queue_size)
         self.medium_priority_queue = NetworkQueue(self.queue_size)
@@ -103,35 +104,36 @@ class Emulator:
             )
             priority = int(priority.decode())
             src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
-            dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
+            dest_addr = socket.inet_ntoa(
+                dest_addr.to_bytes(4, byteorder='big'))
             destination = (dest_addr, int(dest_port))
 
-            if not self.lookup_by_destination(destination):
+            curr_entry = self.lookup_by_destination(destination)
+
+            if not curr_entry:
                 self.log("No forwarding entry found", src_addr, src_port,
-                        dest_addr, dest_port, priority, length)
+                         dest_addr, dest_port, priority, length)
                 return
-            
 
             try:
                 if priority == 1:
                     self.high_priority_queue.enqueue(
-                        incoming_packet, destination, self.lookup_by_destination(destination)[1])
+                        incoming_packet, curr_entry, (src_addr, src_port), priority, length)
                 elif priority == 2:
                     self.medium_priority_queue.enqueue(
-                        incoming_packet, destination, self.lookup_by_destination(destination)[1])
+                        incoming_packet, curr_entry, (src_addr, src_port), priority, length)
                 elif priority == 3:
                     self.low_priority_queue.enqueue(
-                        incoming_packet, destination, self.lookup_by_destination(destination)[1])
+                        incoming_packet, curr_entry, (src_addr, src_port), priority, length)
             except:
                 # test if is END packet
                 packet_type, seq, _ = struct.unpack("!cII", payload)
                 if packet_type == b"E":
                     self.end_packet_queue.enqueue(
-                        incoming_packet, destination, self.lookup_by_destination(destination)[1])
-
-                self.log(f"Dropped because queue {priority} is full",
-                        src_addr, src_port, dest_addr, dest_port, priority, length)
-
+                        incoming_packet, curr_entry, (src_addr, src_port), priority, length)
+                else:
+                    self.log(f"Dropped because queue {priority} is full",
+                             src_addr, src_port, dest_addr, dest_port, priority, length)
 
         # get a packet from the queues if there's no currently delayed packet
         if not self.currently_delaying:
@@ -142,10 +144,13 @@ class Emulator:
         else:
             # decide if the delay is over and should be forwarded
             if time() * 1000 - self.currently_delaying[1] >= self.lookup_by_destination(self.currently_delaying[2])[2]:
-                # forward
-                self.sock.sendto(
-                    self.currently_delaying[0], self.currently_delaying[3])
-                print("Sent", self.currently_delaying[3])
+                if random.random() < self.currently_delaying[4]:
+                    # forward according to loss_prob
+                    self.sock.sendto(
+                        self.currently_delaying[0], self.currently_delaying[2][0])
+                else:
+                    self.log("Loss event occurred", self.currently_delaying[3][0], self.currently_delaying[3][1], self.currently_delaying[
+                             2][0][0], self.currently_delaying[2][0][1], self.currently_delaying[4], self.currently_delaying[5])
                 self.currently_delaying = None
 
     def lookup_by_destination(self, destination: Address) -> Union[Table_Entry, None]:
