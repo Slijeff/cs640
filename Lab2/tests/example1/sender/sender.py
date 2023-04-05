@@ -111,11 +111,8 @@ class Sender:
         
         # add End packet 
         finalInner = struct.pack("!cII", "E".encode(), socket.htonl(self.sequence_no), 0)
-        innerheaders.append(finalInner)
         finalHeader = struct.pack(STRUCT_FORMAT, self.priority.encode(),send_addr, dest_port, \
                             recv_addr,src_port, len(innerheader))
-        headers.append(finalHeader)
-        file_parts.append(b"")
         header_and_payload = [
             header + innerheader + payload for header, innerheader, payload in zip(headers, innerheaders,file_parts)
         ]
@@ -124,10 +121,14 @@ class Sender:
         window_num = 0
         # send the packets with rate limit
         dest = socket.gethostbyname(self.host_name)
-        while index <= len(header_and_payload):
+        while index < len(header_and_payload):
             # send a full window or remaining packets
             window = min(window_size, len(header_and_payload) - window_size * window_num)
+            #print("index ",index, "length: ",len(header_and_payload), "window: ", window, window_num,window_size)
+            if window <0:
+                raise RuntimeError()
             for i in range(window):
+                print("---------------------")
                 print("sending", index, "th packet to ",dest ," port ",self.host_port, socket.gethostbyaddr(dest))
                 outterHeader = header_and_payload[index][:17]
                 outterPayload = header_and_payload[index][17:]
@@ -138,10 +139,11 @@ class Sender:
                 pri, src_addr, src_port, dest_addr, dest_port,leng = outterHeaders
                 src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
                 dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
-                request_type, sq_n, window_size = headers
+                request_type, sq_n, window_size1 = headers
                 payload = payload.decode()
+                print("---------------------")
                 print("Info outterheader:",pri, src_addr, src_port, dest_addr, dest_port,leng)
-                print("Info innerheader: ",request_type, socket.htonl(sq_n), window_size)
+                print("Info innerheader: ",request_type, socket.htonl(sq_n), window_size1)
                 print("Info payload:", payload)
                 self.sock.sendto(
                     #requester and emulator should all use same address, it should work for this project?
@@ -162,14 +164,16 @@ class Sender:
                     outterPayload = packet[17:]
                     header = outterPayload[:9]
                     headers = struct.unpack("!cII", header)
-                    request_type, seq_no = headers[0].decode(),headers[1:5].decode()
+                    request_type, seq_no,_ = headers
+                    request_type = request_type.decode()
+                    seq_no = socket.htonl(seq_no)
                     #get all ack packets seq_no
                     if request_type == "A":
                         received_ack.append(seq_no -1)
                         print("recived ACK for packet",seq_no-1)
                 except TimeoutError:
-                    pass
-            
+                    print("Timeout for one of the packet.")
+            #print(f"window: {window}, {len(received_ack)}")
             # if there are missing packets, try to resend all missing packets
             if len(received_ack) != window:
                 missing =  [i for i in range(index-window+1,index+1) if i not in received_ack]
@@ -187,7 +191,9 @@ class Sender:
                             outterPayload = packet[17:]
                             header = outterPayload[:9]
                             headers = struct.unpack("!cII", header)
-                            request_type, seq_no = headers[0].decode(),headers[1:5].decode()
+                            request_type, seq_no,_ = headers
+                            request_type = request_type.decode()
+                            seq_no = socket.htonl(seq_no)
                             if request_type != "A":
                                 print(
                                     f"[Error] Should get a ack packet with request type 'A', but got {request_type} instead."
@@ -213,6 +219,10 @@ class Sender:
                         )
 
         # send END packet
+        self.sock.sendto(
+                    #requester and emulator should all use same address, it should work for this project?
+                    finalHeader+finalInner, (socket.gethostbyname(self.host_name), self.host_port) 
+                )
         self.log_info("E", self.sequence_no, b"")
 
     def log_info(self, type: Literal["D", "E"], seq: int, payload: bytes) -> None:
