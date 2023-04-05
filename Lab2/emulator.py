@@ -143,8 +143,8 @@ class Emulator:
                     break
         else:
             # decide if the delay is over and should be forwarded
-            if time() * 1000 - self.currently_delaying[1] >= self.lookup_by_destination(self.currently_delaying[2])[2]:
-                if random.random() < self.currently_delaying[4]:
+            if time() * 1000 - self.currently_delaying[1] >= self.currently_delaying[2][2]:
+                if random.random() > self.currently_delaying[2][3]:
                     # forward according to loss_prob
                     self.sock.sendto(
                         self.currently_delaying[0], self.currently_delaying[2][0])
