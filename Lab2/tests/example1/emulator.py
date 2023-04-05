@@ -137,9 +137,13 @@ class Emulator:
 
         # get a packet from the queues if there's no currently delayed packet
         if not self.currently_delaying:
-            for Q in [self.high_priority_queue, self.medium_priority_queue, self.low_priority_queue, self.end_packet_queue]:
+            for i, Q in enumerate([self.high_priority_queue, self.medium_priority_queue, self.low_priority_queue, self.end_packet_queue]):
                 if Q.peek():
                     self.currently_delaying = Q.dequeue()
+                    if i == 3:
+                        # this is end packet, send it instantly
+                        self.sock.sendto(self.currently_delaying[0], self.currently_delaying[2][0])
+                        self.currently_delaying = None
                     break
         else:
             # decide if the delay is over and should be forwarded
