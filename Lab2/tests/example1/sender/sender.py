@@ -152,7 +152,7 @@ class Sender:
                 index += 1
                 self.total_packet_sent += 1
                 time.sleep(1 / self.rate)
-            
+            print("---------------------")
             window_num += 1
             # try to receive all returning ack packets
             received_ack = []
@@ -178,6 +178,7 @@ class Sender:
             if len(received_ack) != window:
                 missing =  [i for i in range(index-window+1,index+1) if i not in received_ack]
                 for i in missing:
+                    print(f"Trying to resend packet {i} in window {window_num} with window size {window_size}")
                     self.sock.sendto(
                         header_and_payload[index-window+i], (socket.gethostbyname(self.host_name), self.host_port)
                     )
@@ -217,7 +218,7 @@ class Sender:
                         print(
                             f"[Error] transmission failed for packet with sequnence number {i+1}, moving to next packet."
                         )
-
+            print(f"Window {window_num} sent successfully")
         # send END packet
         self.sock.sendto(
                     #requester and emulator should all use same address, it should work for this project?
