@@ -61,47 +61,52 @@ class Requester:
         Data_packet_num = 0
         total_byte = 0
         log_store =[]
-        with open(self.filename, "a") as file:
-            request_type = "D"
-            while request_type != "E":
-                packet, req_addr = self.sock.recvfrom(8192)
-                outterHeader = packet[:17]
-                _, src_addr, src_port, dest_addr, dest_port,_ = struct.unpack(STRUCT_FORMAT, outterHeader)
-                src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
-                dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
-                print(dest_addr)
-                if dest_addr!= self.UDP_IP:
-                    print("Received Packet dest addr not consistent with self address, expect ",self.UDP_IP,\
-                        "received" , dest_addr)
-                else:
-                    self.sender_ports.append(req_addr[0])
-                    outterPayload = packet[17:]
-                    header = outterPayload[:9]
-                    payload = outterPayload[9:]
-                    headers = struct.unpack("!cII", header)
-                    request_type, sequence, length, file_content = (
-                        headers[0].decode(),
-                        socket.htonl(headers[1]),
-                        headers[2],
-                        payload,
+        file_store = {}
+        file = open(self.filename, "a")
+        request_type = "D"
+        while request_type != "E":
+            packet, req_addr = self.sock.recvfrom(8192)
+            outterHeader = packet[:17]
+            _, src_addr, src_port, dest_addr, dest_port,_ = struct.unpack(STRUCT_FORMAT, outterHeader)
+            src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
+            dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
+            print(dest_addr)
+            if dest_addr!= self.UDP_IP:
+                print("Received Packet dest addr not consistent with self address, expect ",self.UDP_IP,\
+                    "received" , dest_addr)
+            else:
+                self.sender_ports.append(req_addr[0])
+                outterPayload = packet[17:]
+                header = outterPayload[:9]
+                payload = outterPayload[9:]
+                headers = struct.unpack("!cII", header)
+                request_type, sequence, length, file_content = (
+                    headers[0].decode(),
+                    socket.htonl(headers[1]),
+                    headers[2],
+                    payload,
+                )
+                if Data_packet_num == 0 and request_type != "D":
+                    print(
+                        f"[Error] first packet recived should be a request with request type 'D', but got {request_type} instead."
                     )
-                    if Data_packet_num == 0 and request_type != "D":
-                        print(
-                            f"[Error] first packet recived should be a request with request type 'D', but got {request_type} instead."
-                        )
                     
-                    #send ACK
-                    innerheader = struct.pack("!cII", "A".encode(), socket.htonl(sequence), 0)
-                    outerheader = struct.pack(STRUCT_FORMAT, "1".encode(),int.from_bytes(socket.inet_aton(dest_addr), byteorder='big'), dest_port, \
-                            int.from_bytes(socket.inet_aton(src_addr), byteorder='big'),src_port, len(innerheader))
-                    self.sock.sendto(
-                        outerheader+innerheader, (socket.gethostbyname(self.host_name), self.host_port) 
-                    )
-                    file.write(file_content.decode())
-                    Data_packet_num += 1
-                    total_byte += length
-                    log_store.append([sender_address, sender_port, "D", sequence, length, file_content])
-
+                #send ACK
+                innerheader = struct.pack("!cII", "A".encode(), socket.htonl(sequence), 0)
+                outerheader = struct.pack(STRUCT_FORMAT, "1".encode(),int.from_bytes(socket.inet_aton(dest_addr), byteorder='big'), dest_port, \
+                        int.from_bytes(socket.inet_aton(src_addr), byteorder='big'),src_port, len(innerheader))
+                self.sock.sendto(
+                    outerheader+innerheader, (socket.gethostbyname(self.host_name), self.host_port) 
+                )
+                file_store[sequence] = file_content.decode()
+                Data_packet_num += 1
+                total_byte += length
+                log_store.append([sender_address, sender_port, "D", sequence, length, file_content])
+                    
+        file_index = sorted(file_store.keys())
+        for i in file_index:
+            file.write(file_store[i])
+        file.close()
         for loginfo in log_store:
             self.log_info(loginfo[0],loginfo[1],loginfo[2],loginfo[3],loginfo[4],loginfo[5])
             

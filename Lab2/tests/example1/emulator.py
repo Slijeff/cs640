@@ -87,6 +87,7 @@ class Emulator:
                     next_hop = (socket.gethostbyname(line[4]), int(line[5]))
                     delay = int(line[6])
                     loss_prob = int(line[7])
+                    print(loss_prob)
                     entries.append((destination, next_hop, delay, loss_prob))
                 else:
                     continue

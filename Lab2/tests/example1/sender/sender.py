@@ -24,33 +24,31 @@ class Sender:
         self.priority = priority
         self.host_name = host_name
         self.host_port = host_port
-        self.timeout = timeout
+        self.timeout = float(timeout)/1000
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.UDP_IP, self.listen_port))
         self.listen_to_request()
 
     def listen_to_request(self) -> None:
-        try:
-            packet, req_addr = self.sock.recvfrom(8192)
-            self.requester_address = req_addr[0]
-            outterHeader = packet[:17]
-            outterPayload = packet[17:]
-            header = outterPayload[:9]
-            payload = outterPayload[9:]
-            headers = struct.unpack("!cII", header)
-            outterHeaders = struct.unpack(STRUCT_FORMAT, outterHeader)
-            _, src_addr, src_port, dest_addr, dest_port,_ = outterHeaders
-            src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
-            dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
-            request_type, file_requested, window_size = headers[0].decode(), payload.decode(),headers[2]
-            if request_type != "R":
-                print(
-                    f"[Error] Should get a request with request type 'R', but got {request_type} instead."
-                )
-            print("request receivced from",src_addr," for file ",file_requested," with window size",window_size)
-            self.send_file(file_requested, src_addr, src_port, dest_addr, dest_port, window_size)
-        except TimeoutError:
-            print("[Error] Waited too long for the request, exiting...")
+        packet, req_addr = self.sock.recvfrom(8192)
+        self.requester_address = req_addr[0]
+        outterHeader = packet[:17]
+        outterPayload = packet[17:]
+        header = outterPayload[:9]
+        payload = outterPayload[9:]
+        headers = struct.unpack("!cII", header)
+        outterHeaders = struct.unpack(STRUCT_FORMAT, outterHeader)
+        _, src_addr, src_port, dest_addr, dest_port,_ = outterHeaders
+        src_addr = socket.inet_ntoa(src_addr.to_bytes(4, byteorder='big'))
+        dest_addr = socket.inet_ntoa(dest_addr.to_bytes(4, byteorder='big'))
+        request_type, file_requested, window_size = headers[0].decode(), payload.decode(),headers[2]
+        if request_type != "R":
+            print(
+                f"[Error] Should get a request with request type 'R', but got {request_type} instead."
+            )
+        print("request receivced from",src_addr," for file ",file_requested," with window size",window_size)
+        self.send_file(file_requested, src_addr, src_port, dest_addr, dest_port, window_size)
+
 
     def send_file(self, filename: str, src_addr: int, src_port: int, \
         dest_addr: int, dest_port: int, window_size:int) -> None:
@@ -173,16 +171,18 @@ class Sender:
                         print("recived ACK for packet",seq_no-1)
                 except TimeoutError:
                     print("Timeout for one of the packet.")
-            #print(f"window: {window}, {len(received_ack)}")
+            print(f"window: {window}, {len(received_ack)}")
             # if there are missing packets, try to resend all missing packets
             if len(received_ack) != window:
-                missing =  [i for i in range(index-window+1,index+1) if i not in received_ack]
+                missing =  [i for i in range(index-window,index) if i not in received_ack]
                 for i in missing:
-                    print(f"Trying to resend packet {i} in window {window_num}")
-                    self.sock.sendto(
-                        header_and_payload[index-window+i], (socket.gethostbyname(self.host_name), self.host_port)
-                    )
                     trial = 1
+                    print(f"Trying to resend packet {i}, trail {trial}")
+                    self.sock.sendto(
+                        header_and_payload[i], (socket.gethostbyname(self.host_name), self.host_port)
+                    )
+                    self.total_retransmit +=1
+                    self.total_packet_sent +=1
                     ack = False
                     while trial <=5 and ack == False:
                         try:
@@ -199,25 +199,28 @@ class Sender:
                                 print(
                                     f"[Error] Should get a ack packet with request type 'A', but got {request_type} instead."
                                     )
-                            elif seq_no != index + 1:
+                            elif seq_no != i+1:
                                 print(
-                                    f"[Error] Wrong sequnence number in ack packet, should be {index+1}, but got {seq_no} instead."
+                                    f"[Error] Wrong sequnence number in ack packet, should be {i+1}, but got {seq_no} instead."
                                     )
                             else:
                                 ack = True
                         except TimeoutError:
-                            self.sock.sendto(
-                                header_and_payload[index-window+i], (socket.gethostbyname(self.host_name), self.host_port)
-                            )
-                            time.sleep(1 / self.rate)
-                            self.total_retransmit +=1
-                            self.total_packet_sent +=1
-                            trial +=1
-                            
-                    if trial > 5 and ack == False:
-                        print(
-                            f"[Error] transmission failed for packet with sequnence number {i+1}, moving to next packet."
-                        )
+                            if trial < 5:
+                                self.sock.sendto(
+                                    header_and_payload[i], (socket.gethostbyname(self.host_name), self.host_port)
+                                )
+                                time.sleep(1 / self.rate)
+                                self.total_retransmit +=1
+                                self.total_packet_sent +=1
+                                trial +=1
+                                print(f"Retransmit for packet{i} for trial {trial}")
+                            else:
+                                trial += 1
+                                print(
+                                    f"[Error] transmission failed for packet with sequnence number {i+1}, moving to next packet."
+                                )
+                    print("end of transmit check: ", trial,i)
 
         # send END packet
         self.sock.sendto(
@@ -240,6 +243,8 @@ class Sender:
             print(f"requester addr: {self.requester_address}: {self.requester_port}")
             print(f"Sequence num: {seq}")
             print(f"payload: {payload.decode()}")
+            print(f"total packet sent: {self.total_packet_sent}")
+            print(f"total retransmit: {self.total_retransmit}")
             print(f"loss rate:{self.total_retransmit/self.total_packet_sent * 100} %")
             print(f"---------------------")
 
