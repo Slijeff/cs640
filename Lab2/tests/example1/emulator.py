@@ -108,7 +108,6 @@ class Emulator:
             dest_addr = socket.inet_ntoa(
                 dest_addr.to_bytes(4, byteorder='big'))
             destination = (dest_addr, int(dest_port))
-
             curr_entry = self.lookup_by_destination(destination)
 
             if not curr_entry:
@@ -116,8 +115,13 @@ class Emulator:
                          dest_addr, dest_port, priority, length)
                 return
 
+            packet_type, seq, _ = struct.unpack("!cII", payload[:9])
+
             try:
-                if priority == 1:
+                if packet_type == b"E":
+                    self.end_packet_queue.enqueue(
+                        incoming_packet, curr_entry, (src_addr, src_port), priority, length)
+                elif priority == 1:
                     self.high_priority_queue.enqueue(
                         incoming_packet, curr_entry, (src_addr, src_port), priority, length)
                 elif priority == 2:
@@ -128,12 +132,7 @@ class Emulator:
                         incoming_packet, curr_entry, (src_addr, src_port), priority, length)
             except:
                 # test if is END packet
-                packet_type, seq, _ = struct.unpack("!cII", payload)
-                if packet_type == b"E":
-                    self.end_packet_queue.enqueue(
-                        incoming_packet, curr_entry, (src_addr, src_port), priority, length)
-                else:
-                    self.log(f"Dropped because queue {priority} is full",
+                self.log(f"Dropped because queue {priority} is full",
                              src_addr, src_port, dest_addr, dest_port, priority, length)
 
         # get a packet from the queues if there's no currently delayed packet
@@ -151,6 +150,9 @@ class Emulator:
             if time() * 1000 - self.currently_delaying[1] >= self.currently_delaying[2][2]:
                 if random.random()*100 > self.currently_delaying[2][3]:
                     # forward according to loss_prob
+                    payload = self.currently_delaying[0][17:]
+                    ty, seq_, win = struct.unpack("!cII",payload[:9])
+                    print(ty,socket.htonl(seq_))
                     self.sock.sendto(
                         self.currently_delaying[0], self.currently_delaying[2][0])
                 else:
