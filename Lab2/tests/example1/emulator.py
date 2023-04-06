@@ -131,7 +131,6 @@ class Emulator:
                     self.low_priority_queue.enqueue(
                         incoming_packet, curr_entry, (src_addr, src_port), priority, length)
             except:
-                # test if is END packet
                 self.log(f"Dropped because queue {priority} is full",
                              src_addr, src_port, dest_addr, dest_port, priority, length)
 
@@ -140,14 +139,16 @@ class Emulator:
             for i, Q in enumerate([self.high_priority_queue, self.medium_priority_queue, self.low_priority_queue, self.end_packet_queue]):
                 if Q.peek():
                     self.currently_delaying = Q.dequeue()
-                    if i == 3:
-                        # this is end packet, send it instantly
-                        self.sock.sendto(self.currently_delaying[0], self.currently_delaying[2][0])
-                        self.currently_delaying = None
                     break
         else:
             # decide if the delay is over and should be forwarded
             if time() * 1000 - self.currently_delaying[1] >= self.currently_delaying[2][2]:
+
+                # do not drop end packet, but still delays it
+                if self.check_packet_type(self.currently_delaying[0]) == b"E":
+                    self.sock.sendto(
+                        self.currently_delaying[0], self.currently_delaying[2][0])
+                    
                 if random.random()*100 > self.currently_delaying[2][3]:
                     # forward according to loss_prob
                     payload = self.currently_delaying[0][17:]
@@ -158,6 +159,7 @@ class Emulator:
                 else:
                     self.log("Loss event occurred", self.currently_delaying[3][0], self.currently_delaying[3][1], self.currently_delaying[
                              2][0][0], self.currently_delaying[2][0][1], self.currently_delaying[4], self.currently_delaying[5])
+                
                 self.currently_delaying = None
 
     def lookup_by_destination(self, destination: Address) -> Union[Table_Entry, None]:
@@ -170,6 +172,11 @@ class Emulator:
             if destination == e[0]:
                 return e
         return None
+
+    def check_packet_type(self, packet: bytes) -> bytes:
+        payload = packet[17:]
+        packet_type, seq, _ = struct.unpack("!cII", payload[:9])
+        return packet_type
 
     def log(self, message: str, src_addr: str, src_port: int, dest_addr: str, dest_port: int, priority: int, payload_size: int) -> None:
         logging.info("%s\t[src-%s:%d, dst-%s:%d, priority-%d, payload_size-%d]",
