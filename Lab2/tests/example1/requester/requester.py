@@ -58,10 +58,11 @@ class Requester:
         self.receive_file(dest[1], dest[2],len(self.tracker_info[self.filename]))
 
     def receive_file(self, sender_address, sender_port,req_num) -> None:
-        startTime = time.time()
-        Data_packet_num = 0
-        total_byte = 0
+        startTime = {}
+        Data_packet_num = {}
+        total_byte = {}
         log_store =[]
+        summary_store = []
         file_store = {}
         file = open(self.filename, "a")
         request_type = "D"
@@ -78,8 +79,14 @@ class Requester:
             else:
                 if src_addr not in file_store:
                     file_store[src_addr] = {}
+                    Data_packet_num[src_addr] = {}
+                    total_byte[src_addr] = {}
+                    startTime[src_addr] = {}
                 if src_port not in file_store[src_addr]:
                     file_store[src_addr][src_port] = {}
+                    Data_packet_num[src_addr][src_port] = 0
+                    total_byte[src_addr][src_port] = 0
+                    startTime[src_addr][src_port] = time.time()
                 outterPayload = packet[17:]
                 header = outterPayload[:9]
                 payload = outterPayload[9:]
@@ -91,25 +98,32 @@ class Requester:
                     payload,
                 )
                 print(request_type)
-                if Data_packet_num == 0 and request_type != "D":
+                if Data_packet_num[src_addr][src_port] == 0 and request_type != "D":
                     print(
                         f"[Error] first packet recived should be a request with request type 'D', but got {request_type} instead."
                     )
                 if request_type == "E":
                     end_num += 1
-                    log_store.append([src_addr, src_port, "E", sequence, length, b""])
+                    log_store.append([datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3],src_addr, src_port, \
+                                      "E", sequence, length, b""])
                 #send ACK
+                
+                innerheader = struct.pack("!cII", "A".encode(), socket.htonl(sequence), 0)
+                outerheader = struct.pack(STRUCT_FORMAT, "1".encode(),int.from_bytes(socket.inet_aton(dest_addr), byteorder='big'), dest_port, \
+                        int.from_bytes(socket.inet_aton(src_addr), byteorder='big'),src_port, len(innerheader))
+                self.sock.sendto(
+                    outerheader+innerheader, (socket.gethostbyname(self.host_name), self.host_port) 
+                )
+                Data_packet_num[src_addr][src_port] += 1
                 if request_type != "E":
-                    innerheader = struct.pack("!cII", "A".encode(), socket.htonl(sequence), 0)
-                    outerheader = struct.pack(STRUCT_FORMAT, "1".encode(),int.from_bytes(socket.inet_aton(dest_addr), byteorder='big'), dest_port, \
-                            int.from_bytes(socket.inet_aton(src_addr), byteorder='big'),src_port, len(innerheader))
-                    self.sock.sendto(
-                        outerheader+innerheader, (socket.gethostbyname(self.host_name), self.host_port) 
-                    )
-                    file_store[src_addr][src_port][sequence] = file_content.decode()
-                    Data_packet_num += 1
-                    total_byte += length
-                    log_store.append([src_addr, src_port, "D", sequence, length, file_content])
+                    file_store[src_addr][src_port][sequence] = file_content.decode()   
+                    total_byte[src_addr][src_port] += length
+                else:
+                    log_store.append([datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3],src_addr, src_port, \
+                                      "D", sequence, length, file_content])
+                    duration =  int((time.time() - startTime[src_addr][src_port]) * 1000)
+                    summary_store.append([src_addr, src_port,Data_packet_num[src_addr][src_port],total_byte[src_addr][src_port],\
+                                   duration,round(Data_packet_num[src_addr][src_port] / (duration / 1000))])
 
         for dest in self.tracker_info[self.filename]:
             store = file_store[dest[1]][dest[2]]       
@@ -118,13 +132,13 @@ class Requester:
                 file.write(store[i])
         file.close()
         for loginfo in log_store:
-            self.log_info(loginfo[0],loginfo[1],loginfo[2],loginfo[3],loginfo[4],loginfo[5])
-            
-        duration = int((time.time() - startTime) * 1000)
-        avg_packet = round(Data_packet_num / (duration / 1000))
+            self.log_info(loginfo[0],loginfo[1],loginfo[2],loginfo[3],loginfo[4],loginfo[5],loginfo[6])
+        for loginfo in summary_store:
+            self.log_Summary(loginfo[0],loginfo[1],loginfo[2],loginfo[3],loginfo[4],loginfo[5])
 
     def log_info(
         self,
+        recv_time: str,
         sender_address: str,
         sender_port: str,
         type: Literal["D", "E"],
@@ -134,7 +148,7 @@ class Requester:
     ) -> None:
         if type == "D":
             print(f"-----DATA Packet-----")
-            print(f"recv time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
+            print(f"recv time: {recv_time}")
             print(f"sender addr: {sender_address}: {sender_port}")
             print(f"Sequence num: {seq}")
             print(f"length:: {length}")
@@ -142,7 +156,7 @@ class Requester:
             print(f"---------------------")
         elif type == "E":
             print(f"-----END Packet------")
-            print(f"recv time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
+            print(f"recv time: {recv_time}")
             print(f"sender addr: {sender_address}: {sender_port}")
             print(f"Sequence num: {seq}")
             print(f"length:: {length}")
