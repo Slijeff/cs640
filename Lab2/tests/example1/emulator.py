@@ -67,7 +67,7 @@ class Emulator:
 
         logging.basicConfig(
             format='[%(asctime)s]\t%(message)s', filename=self.log_name, level=logging.DEBUG)
-        logging.info("Emulator started on port %d", self.port)
+        logging.info("Emulator started on port %d", self.port) 
 
         self.start()
 
@@ -148,17 +148,18 @@ class Emulator:
                 if self.check_packet_type(self.currently_delaying[0]) == b"E":
                     self.sock.sendto(
                         self.currently_delaying[0], self.currently_delaying[2][0])
-                    
-                if random.random()*100 > self.currently_delaying[2][3]:
-                    # forward according to loss_prob
-                    payload = self.currently_delaying[0][17:]
-                    ty, seq_, win = struct.unpack("!cII",payload[:9])
-                    print(ty,socket.htonl(seq_))
-                    self.sock.sendto(
-                        self.currently_delaying[0], self.currently_delaying[2][0])
+                
                 else:
-                    self.log("Loss event occurred", self.currently_delaying[3][0], self.currently_delaying[3][1], self.currently_delaying[
-                             2][0][0], self.currently_delaying[2][0][1], self.currently_delaying[4], self.currently_delaying[5])
+                    if random.random()*100 > self.currently_delaying[2][3]:
+                        # forward according to loss_prob
+                        payload = self.currently_delaying[0][17:]
+                        ty, seq_, win = struct.unpack("!cII",payload[:9])
+                        print(ty,socket.htonl(seq_))
+                        self.sock.sendto(
+                            self.currently_delaying[0], self.currently_delaying[2][0])
+                    else:
+                        self.log("Loss event occurred", self.currently_delaying[3][0], self.currently_delaying[3][1], self.currently_delaying[
+                                2][0][0], self.currently_delaying[2][0][1], self.currently_delaying[4], self.currently_delaying[5])
                 
                 self.currently_delaying = None
 
