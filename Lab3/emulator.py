@@ -23,8 +23,12 @@ class Emulator():
             for line in f:
                 # find itself in the topo_file
                 line = line.split(' ')
-                ip_port_pair = [(ip, port) for ip, port in pair in line]
-                print(ip_port_pair)
+                line = [x.replace('\n', '').split(',') for x in line]
+                line = [(x[0], int(x[1])) for x in line]
+                if line[0][0] == self.ip and line[0][1] == self.port:
+                    self.neighbors = line[1:]
+
+        print(self.neighbors)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Network Emulator")
