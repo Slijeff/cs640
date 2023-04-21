@@ -3,8 +3,9 @@ from dataclasses import dataclass
 import pickle
 import time
 import argparse
-from typing import Dict, List, Optional, Set, Tuple, Literal
+from typing import Dict, List, Optional, Set, Tuple, Literal, Union
 from collections import defaultdict, deque
+import logging
 
 Address = Tuple[str, int]
 
@@ -31,10 +32,11 @@ class NeighborList:
         for n in neighbors:
             self.neighbors.append((n, time.time()))
 
-    def record_neighbor(self, neighbor: Address) -> Tuple[Address, Literal["UP"]] | None:
+    def record_neighbor(self, neighbor: Address) -> Union[Tuple[Address, Literal["UP"]], None]:
         if neighbor not in self.neighbors:
             # a neighbor is online
             self.neighbors.append((neighbor, time.time()))
+            logging.debug(f"Neighbor {neighbor} is online")
             return (neighbor, 'UP')
         else:
             old = None
@@ -45,10 +47,12 @@ class NeighborList:
             self.neighbors.remove(old)
             self.neighbors.append((neighbor, time.time()))
 
-    def check_timeout(self) -> Tuple[Address, Literal["DOWN"]] | None:
+    def check_timeout(self) -> Union[Tuple[Address, Literal["DOWN"]], None]:
         for entry in self.neighbors:
             if time.time() - entry[1] > self.timeout:
                 self.neighbors.remove(entry)
+                logging.debug(
+                    f"Neighbor {entry[0]} is offline due to timeout for {time.time() - entry[1]} seconds")
                 return (entry[0], "DOWN")
 
 
@@ -60,30 +64,39 @@ class Emulator:
         # a list of (ip, port) pair that indicates the neighbors
         self.neighbors: List[Address] = []
 
-        self.ip = socket.gethostbyname(socket.gethostname())
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((self.ip, self.port))
-        self.sock.setblocking(False)
+        # self.ip = socket.gethostbyname(socket.gethostname())
+        # self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # self.sock.bind((self.ip, self.port))
+        # self.sock.setblocking(False)
 
         # for testing purpose
-        # self.ip = '2.0.0.0'
+        self.ip = '2.0.0.0'
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.address = (self.ip, self.port)
         self.lsp_interval = 0.5  # in seconds
         self.hello_interval = 0.5  # timeout for neighbor nodes
         self.sequence_no = 0
+        self.last_hello_sent = time.time()
+        self.last_LSM_sent = time.time()
         # maps (dst_addr, dst_ip) to (next_hop_addr, next_hop_ip)
         self.forwarding_table: Dict[Address, Address] = {}
         self.all_nodes_except_self: List[Address] = []
         self.adj_list: Dict[Address, Set[Address]] = defaultdict(set)
         self.sequence_tracking: Dict[Address, int] = defaultdict(int)
 
+        logging.basicConfig(
+            format='[%(asctime)s]  === %(levelname)s ===  %(message)s', level=logging.DEBUG)
+        logging.info("Emulator started on port %d", self.port)
+
         self.read_topology()
         self.neighbor_list = NeighborList(
             set(self.neighbors), self.hello_interval)
         self.build_forwarding_table()
+        self.emulate()
 
     def read_topology(self) -> None:
+        logging.info("Reading topology file")
         topology = []
         with open(self.topo_file, 'r') as f:
             for line in f:
@@ -103,6 +116,8 @@ class Emulator:
 
         assert topology != []
         self.neighbors = topology
+        logging.debug(
+            f"Found {len(self.neighbors)} neighbors; Total of {len(self.all_nodes_except_self) + 1} nodes are in the network")
 
     def update_adj_list(self, msg: Message) -> bool:
         """
@@ -113,6 +128,7 @@ class Emulator:
         assert msg.source in self.adj_list, "Source node not in topology file"
 
         if self.sequence_tracking[msg.source] >= msg.seq_num:
+            logging.debug(f"Adjacency list remains the same because the received LSM is outdated")
             return False
 
         old = self.adj_list[msg.source]
@@ -121,14 +137,17 @@ class Emulator:
         if new:
             if old == new:
                 self.sequence_tracking[msg.source] = msg.seq_num
+                logging.debug(f"Adjacency list remains the same but the received LSM is newer")
                 return False
             else:
                 self.sequence_tracking[msg.source] = msg.seq_num
                 self.adj_list[msg.source] = new
+                logging.debug(f"Adjacency list changed")
 
         return True
 
     def build_forwarding_table(self) -> None:
+        logging.info("Building forwarding table")
         for node in self.all_nodes_except_self:
             self.forwarding_table[node] = self.forward_search(self.address, node)[
                 1]
@@ -156,8 +175,10 @@ class Emulator:
     def broadcast_to_neighbors(self, msg: Message) -> None:
         for neighbor in self.adj_list[self.address]:
             self.send_msg(msg, neighbor)
+        logging.debug(f"Sent a {msg.packet_type} packet to neighbors")
 
     def emulate_once(self, msg: Message) -> None:
+        logging.info(f"Received {msg.packet_type} packet from {msg.source}")
         # If message is HELLO
         if msg.packet_type == "HELLO":
             self.neighbor_list.record_neighbor(msg.source)
@@ -166,6 +187,7 @@ class Emulator:
             assert msg.ttl != None, "For Link State packet, ttl must be present"
             if msg.ttl > 0:
                 if self.update_adj_list(msg):
+                    logging.info(f"Network topoloy changed according to a LSM from {msg.source}")
                     self.build_forwarding_table()
                 msg.ttl -= 1
                 self.broadcast_to_neighbors(msg)
@@ -193,6 +215,7 @@ class Emulator:
         result = self.neighbor_list.check_timeout()
         if result:
             # Send new link state message and rebuild forwarding_table
+            logging.info("Broadcasting dead neighbor to other nodes")
             self.adj_list[self.address].remove(result[0])
             self.broadcast_to_neighbors(
                 Message(
@@ -205,8 +228,9 @@ class Emulator:
             )
             self.sequence_no += 1
             self.build_forwarding_table()
-        
+
     def emulate(self) -> None:
+        logging.info("Starting emulator main loop")
         while 1:
             try:
                 packet, _ = self.sock.recvfrom(8092)
@@ -214,6 +238,25 @@ class Emulator:
                 self.emulate_once(msg)
             except:
                 pass
+
+            # Send Hello to neighbors
+            if time.time() - self.last_hello_sent >= self.hello_interval:
+                self.last_hello_sent = time.time()
+                self.broadcast_to_neighbors(Message(
+                    source=self.address,
+                    packet_type='HELLO'
+                ))
+            # Send LSM to neighbors
+            if time.time() - self.last_LSM_sent >= self.hello_interval:
+                self.last_LSM_sent = time.time()
+                self.broadcast_to_neighbors(Message(
+                    source=self.address,
+                    packet_type='LSM',
+                    seq_num=self.sequence_no + 1,
+                    ttl=25,
+                    neighbors=self.adj_list[self.address]
+                ))
+                self.sequence_no += 1
 
 
 if __name__ == "__main__":
