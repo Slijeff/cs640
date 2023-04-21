@@ -1,4 +1,3 @@
-from re import S
 import socket
 from dataclasses import dataclass
 import pickle
@@ -61,13 +60,13 @@ class Emulator:
         # a list of (ip, port) pair that indicates the neighbors
         self.neighbors: List[Address] = []
 
-        # self.ip = socket.gethostbyname(socket.gethostname())
-        # self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # self.sock.bind((self.ip, self.port))
-        # self.sock.setblocking(False)
+        self.ip = socket.gethostbyname(socket.gethostname())
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind((self.ip, self.port))
+        self.sock.setblocking(False)
 
         # for testing purpose
-        self.ip = '2.0.0.0'
+        # self.ip = '2.0.0.0'
 
         self.address = (self.ip, self.port)
         self.lsp_interval = 0.5  # in seconds
@@ -206,6 +205,15 @@ class Emulator:
             )
             self.sequence_no += 1
             self.build_forwarding_table()
+        
+    def emulate(self) -> None:
+        while 1:
+            try:
+                packet, _ = self.sock.recvfrom(8092)
+                msg = pickle.loads(packet)
+                self.emulate_once(msg)
+            except:
+                pass
 
 
 if __name__ == "__main__":
