@@ -74,7 +74,7 @@ class Emulator:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.address = (self.ip, self.port)
-        self.lsp_interval = 0.5  # in seconds
+        self.lsm_interval = 0.5  # in seconds
         self.hello_interval = 0.5  # timeout for neighbor nodes
         self.sequence_no = 0
         self.last_hello_sent = time.time()
@@ -247,7 +247,7 @@ class Emulator:
                     packet_type='HELLO'
                 ))
             # Send LSM to neighbors
-            if time.time() - self.last_LSM_sent >= self.hello_interval:
+            if time.time() - self.last_LSM_sent >= self.lsm_interval:
                 self.last_LSM_sent = time.time()
                 self.broadcast_to_neighbors(Message(
                     source=self.address,
