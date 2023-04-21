@@ -164,19 +164,20 @@ class Emulator:
             self.neighbor_list.record_neighbor(msg.source)
         # If message is Link State
         elif msg.packet_type == "LSM":
-            if self.update_adj_list(msg):
-                self.build_forwarding_table()
+            assert msg.ttl != None, "For Link State packet, ttl must be present"
+            if msg.ttl > 0:
+                if self.update_adj_list(msg):
+                    self.build_forwarding_table()
+                msg.ttl -= 1
+                self.broadcast_to_neighbors(msg)
 
-            assert msg.ttl != None
-            msg.ttl -= 1
-            self.broadcast_to_neighbors(msg)
         # If message is Traceroute
         elif msg.packet_type == "TRACE":
 
-            assert msg.destination != None, "For Traceroute packet, the destination field must not be None"
-            assert msg.ttl != None, "For Traceroute packet, the ttl field must not be None"
+            assert msg.destination != None, "For Traceroute packet, the destination must be present"
+            assert msg.ttl != None, "For Traceroute packet, the ttl must be present"
 
-            if msg.ttl != 0:
+            if msg.ttl > 0:
                 # forward it
                 msg.ttl -= 1
                 self.send_msg(msg, self.forwarding_table[msg.destination])
