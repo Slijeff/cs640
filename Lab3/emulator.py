@@ -10,17 +10,18 @@ Address = Tuple[str, int]
 
 @dataclass
 class Message:
-    creator: Address
+    source: Address
     packet_type: Literal["HELLO", "LSM", "TRACE"]
     seq_num: Optional[int] = None
     ttl: Optional[int] = None
     # since the cost is always 1, we only send adjacent nodes
     neighbors: Optional[Set[Address]] = None 
+    destination: Optional[Address] = None
 
     def to_bytes(self) -> bytes:
         return pickle.dumps(self)
 
-class NeighborList():
+class NeighborList:
     def __init__(self, neighbors: Set[Address], timeout: float) -> None:
         self.neighbors: List[Tuple[Address, float]] = []
         self.timeout = timeout
@@ -50,7 +51,7 @@ class NeighborList():
 
 
 
-class Emulator():
+class Emulator:
     def __init__(self, port: int, filename: str) -> None:
         self.port = port
         self.topo_file = filename
@@ -101,16 +102,16 @@ class Emulator():
         """
         returns True if adjacency list changed, False if nothing changed
         """
-        assert msg.creator in self.adj_list, "Source node not in topology file"
+        assert msg.source in self.adj_list, "Source node not in topology file"
 
-        old = self.adj_list[msg.creator]
+        old = self.adj_list[msg.source]
         new = msg.neighbors
 
         if new:
             if old == new:
                 return False
             else:
-                self.adj_list[msg.creator] = new
+                self.adj_list[msg.source] = new
 
         return True
 
@@ -142,13 +143,30 @@ class Emulator():
     def emulate_once(self, msg: Message) -> None:
         # If message is HELLO
         if msg.packet_type == "HELLO":
-            self.neighbor_list.record_neighbor(msg.creator)
+            self.neighbor_list.record_neighbor(msg.source)
         #If message is Link State
         elif msg.packet_type == "LSM":
             pass
         # If message is Traceroute
         elif msg.packet_type == "TRACE":
-            pass
+
+            assert msg.destination != None, "For Traceroute packet, the destination field must not be None"
+            assert msg.ttl != None, "For Traceroute packet, the ttl field must not be None"
+
+            if msg.ttl != 0:
+                # forward it 
+                msg.ttl -= 1
+                self.send_msg(msg, self.forwarding_table[msg.destination])
+            else:
+                # change the source to itself and dest to source
+                originator = msg.source
+                msg.destination = originator
+                msg.source = self.address
+                msg.ttl = 999
+                # forward it
+                self.send_msg(msg, self.forwarding_table[msg.destination])
+                
+            
 
         # Check if any neighbor is dead
         result = self.neighbor_list.check_timeout()
