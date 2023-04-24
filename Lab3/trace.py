@@ -34,13 +34,13 @@ class trace:
             if self.debugOption:
                 print(message.ttl,message.source[0],message.source[1],
                       message.destination[0],message.destination[1])
-            print(self.TTL+1, response.destination[0],response.destination[1])
-            if self.destName != response.destination[0] or\
-                self.destPort != response.destination[1]:
+            print(self.TTL+1, response.source[0],response.source[1])
+            if self.destName != response.source[0] or\
+                self.destPort != response.source[1]:
                     self.TTL += 1
             else:
                 responsed = True
-        
+            self.sock.settimeout(3)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Network Emulator")

@@ -75,9 +75,9 @@ class Emulator:
         # self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.address = (self.ip, self.port)
-        self.lsm_interval = 0.5  # in seconds
-        self.hello_interval = 0.5  # timeout for neighbor nodes
-        self.timout = 1
+        self.lsm_interval = 1  # in seconds
+        self.hello_interval = 1  # timeout for neighbor nodes
+        self.timout = 3
         self.sequence_no = 0
         self.last_hello_sent = time.time()
         self.last_LSM_sent = time.time()
@@ -154,9 +154,16 @@ class Emulator:
             logging.debug("No neighbor is online, empty forwarding table")
             self.forwarding_table[dead_node] = ("125.125.125.125", -1)
             return
-        for node in self.all_nodes_except_self:
-            self.forwarding_table[node] = self.forward_search(self.address, node)[
-                1]
+        print("before build", self.forwarding_table)
+        print([x for x in self.all_nodes_except_self if x != dead_node])
+        for node in [x for x in self.all_nodes_except_self if x != dead_node]:
+            result = self.forward_search(self.address, node)
+            if result:
+                self.forwarding_table[node] = result[1]
+            else:
+                self.forwarding_table[node] = ("125.125.125.125", -1)
+            if dead_node:
+                self.forwarding_table[dead_node] = ("125.125.125.125", -1)
 
     def forward_search(self, start: Address, goal: Address) -> List[Address]:
         frontier = deque([(start, [start])])
@@ -272,8 +279,10 @@ class Emulator:
             if result:
                 # Send new link state message and rebuild forwarding_table
                 logging.info("Broadcasting dead neighbor to other nodes")
-                self.adj_list[self.address].remove(result[0])
-                self.adj_list[result[0]].remove(self.address)
+                if result[0] in self.adj_list[self.address]:
+                    self.adj_list[self.address].remove(result[0])
+                if self.address in self.adj_list[result[0]]:
+                    self.adj_list[result[0]].remove(self.address)
                 self.broadcast_to_neighbors(
                     Message(
                         source=self.address,
