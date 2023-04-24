@@ -34,10 +34,10 @@ class trace:
             if self.debugOption:
                 print(message.ttl,message.source[0],message.source[1],
                       message.destination[0],message.destination[1])
-            print(TTL+1, response.destination[0],response.destination[1])
+            print(self.TTL+1, response.destination[0],response.destination[1])
             if self.destName != response.destination[0] or\
                 self.destPort != response.destination[1]:
-                    TTL += 1
+                    self.TTL += 1
             else:
                 responsed = True
         

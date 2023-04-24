@@ -33,7 +33,7 @@ class NeighborList:
             self.neighbors.append((n, time.time()))
 
     def record_neighbor(self, neighbor: Address) -> Union[Tuple[Address, Literal["UP"]], None]:
-        if neighbor not in self.neighbors:
+        if neighbor not in [n[0] for n in self.neighbors]:
             # a neighbor is online
             self.neighbors.append((neighbor, time.time()))
             logging.debug(f"Neighbor {neighbor} is online")
@@ -46,6 +46,7 @@ class NeighborList:
             assert old != None
             self.neighbors.remove(old)
             self.neighbors.append((neighbor, time.time()))
+            logging.debug(f"Neighbor is already online, updated")
 
     def check_timeout(self) -> Union[Tuple[Address, Literal["DOWN"]], None]:
         for entry in self.neighbors:
@@ -64,18 +65,19 @@ class Emulator:
         # a list of (ip, port) pair that indicates the neighbors
         self.neighbors: List[Address] = []
 
-        # self.ip = socket.gethostbyname(socket.gethostname())
-        # self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # self.sock.bind((self.ip, self.port))
-        # self.sock.setblocking(False)
+        self.ip = socket.gethostbyname(socket.gethostname())
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind((self.ip, self.port))
+        self.sock.setblocking(False)
 
         # for testing purpose
-        self.ip = '2.0.0.0'
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # self.ip = '2.0.0.0'
+        # self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.address = (self.ip, self.port)
         self.lsm_interval = 0.5  # in seconds
         self.hello_interval = 0.5  # timeout for neighbor nodes
+        self.timout = 1
         self.sequence_no = 0
         self.last_hello_sent = time.time()
         self.last_LSM_sent = time.time()
@@ -91,7 +93,7 @@ class Emulator:
 
         self.read_topology()
         self.neighbor_list = NeighborList(
-            set(self.neighbors), self.hello_interval)
+            set(self.neighbors), self.timout)
         self.build_forwarding_table()
         self.emulate()
 
@@ -146,8 +148,12 @@ class Emulator:
 
         return True
 
-    def build_forwarding_table(self) -> None:
+    def build_forwarding_table(self, dead_node: Union[Address, None] = None) -> None:
         logging.info("Building forwarding table")
+        if dead_node and not self.adj_list[self.address]:
+            logging.debug("No neighbor is online, empty forwarding table")
+            self.forwarding_table[dead_node] = ("125.125.125.125", -1)
+            return
         for node in self.all_nodes_except_self:
             self.forwarding_table[node] = self.forward_search(self.address, node)[
                 1]
@@ -169,19 +175,36 @@ class Emulator:
         return []
 
     def send_msg(self, msg: Message, dest: Address) -> None:
-        # self.sock.sendto(msg.to_bytes(), dest)
-        pass
+        self.sock.sendto(msg.to_bytes(), dest)
+        # pass
 
     def broadcast_to_neighbors(self, msg: Message) -> None:
-        for neighbor in self.adj_list[self.address]:
-            self.send_msg(msg, neighbor)
-        logging.debug(f"Sent a {msg.packet_type} packet to neighbors")
+        if self.adj_list[self.address]:
+            for neighbor in self.adj_list[self.address]:
+                self.send_msg(msg, neighbor)
+            logging.debug(f"Sent a {msg.packet_type} packet to neighbors")
+        else:
+            logging.debug(f"Try to broadcast {msg.packet_type} but no neighbor is online")
+    
+    def broadcast_to_neighbors_except(self, msg: Message, _except: Address) -> None:
+        if self.adj_list[self.address]:
+            for neighbor in self.adj_list[self.address]:
+                if neighbor != _except:
+                    self.send_msg(msg, neighbor)
+            logging.debug(f"Sent a {msg.packet_type} packet to neighbors")
+        else:
+            logging.debug(f"Try to broadcast {msg.packet_type} but no neighbor is online")
 
     def emulate_once(self, msg: Message) -> None:
         logging.info(f"Received {msg.packet_type} packet from {msg.source}")
         # If message is HELLO
         if msg.packet_type == "HELLO":
-            self.neighbor_list.record_neighbor(msg.source)
+            result = self.neighbor_list.record_neighbor(msg.source)
+            if result:
+                self.adj_list[self.address].add(result[0])
+                self.adj_list[result[0]].add(self.address)
+                self.sequence_tracking[result[0]] = 0
+                self.build_forwarding_table()
         # If message is Link State
         elif msg.packet_type == "LSM":
             assert msg.ttl != None, "For Link State packet, ttl must be present"
@@ -190,44 +213,29 @@ class Emulator:
                     logging.info(f"Network topoloy changed according to a LSM from {msg.source}")
                     self.build_forwarding_table()
                 msg.ttl -= 1
-                self.broadcast_to_neighbors(msg)
+                self.broadcast_to_neighbors_except(msg, msg.source)
 
         # If message is Traceroute
         elif msg.packet_type == "TRACE":
-
+            
             assert msg.destination != None, "For Traceroute packet, the destination must be present"
             assert msg.ttl != None, "For Traceroute packet, the ttl must be present"
-
+            print("Inside TRACE", msg.ttl)
             if msg.ttl > 0:
                 # forward it
                 msg.ttl -= 1
+                print("Inside TRACE > 0", msg, self.forwarding_table[msg.destination])
                 self.send_msg(msg, self.forwarding_table[msg.destination])
             else:
                 # change the source to itself and dest to source
                 originator = msg.source
                 msg.destination = originator
                 msg.source = self.address
-                msg.ttl = 999
+                msg.ttl = 1
                 # forward it
-                self.send_msg(msg, self.forwarding_table[msg.destination])
+                self.send_msg(msg, msg.destination)
 
-        # Check if any neighbor is dead
-        result = self.neighbor_list.check_timeout()
-        if result:
-            # Send new link state message and rebuild forwarding_table
-            logging.info("Broadcasting dead neighbor to other nodes")
-            self.adj_list[self.address].remove(result[0])
-            self.broadcast_to_neighbors(
-                Message(
-                    source=self.address,
-                    packet_type='LSM',
-                    seq_num=self.sequence_no + 1,
-                    ttl=25,  # maximum of 20 nodes, put 25 just to be safe
-                    neighbors=self.adj_list[self.address]
-                )
-            )
-            self.sequence_no += 1
-            self.build_forwarding_table()
+        
 
     def emulate(self) -> None:
         logging.info("Starting emulator main loop")
@@ -248,6 +256,8 @@ class Emulator:
                 ))
             # Send LSM to neighbors
             if time.time() - self.last_LSM_sent >= self.lsm_interval:
+                print("adj_list: ", self.adj_list)
+                print("forwarding: ", self.forwarding_table)
                 self.last_LSM_sent = time.time()
                 self.broadcast_to_neighbors(Message(
                     source=self.address,
@@ -257,6 +267,25 @@ class Emulator:
                     neighbors=self.adj_list[self.address]
                 ))
                 self.sequence_no += 1
+            # Check if any neighbor is dead
+            result = self.neighbor_list.check_timeout()
+            if result:
+                # Send new link state message and rebuild forwarding_table
+                logging.info("Broadcasting dead neighbor to other nodes")
+                self.adj_list[self.address].remove(result[0])
+                self.adj_list[result[0]].remove(self.address)
+                self.broadcast_to_neighbors(
+                    Message(
+                        source=self.address,
+                        packet_type='LSM',
+                        seq_num=self.sequence_no + 1,
+                        ttl=25,  # maximum of 20 nodes, put 25 just to be safe
+                        neighbors=self.adj_list[self.address]
+                    )
+                )
+                self.sequence_no += 1
+                self.build_forwarding_table(result[0])
+
 
 
 if __name__ == "__main__":
