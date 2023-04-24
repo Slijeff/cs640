@@ -21,18 +21,18 @@ class trace:
     def startRouteTrace(self) ->None:
         responsed = False
         while responsed == False:
-            message = Message((self.IP,self.port),'TRACE',None,self.TTL,
+            message = Message((self.IP,self.port),'TRACE',None,self.TTL,None,
                             (self.destName,self.destPort))
-            self.sock.sendto(message.to_bytes,(self.IP,self.port))
+            self.sock.sendto(message.to_bytes(),(self.srcName,self.srcPort))
             if self.debugOption:
-                print(message.TTL,message.source[0],message.source[1],
-                      message.destination[0],message.destination[1])
+                print(message.ttl,message.source[0],message.source[1],
+                     self.destName,self.destPort)
             response, _ = self.sock.recvfrom(8192)
-            response = pickle.load(response)
+            response = pickle.loads(response)
             assert type(response) == Message
             assert response.packet_type == 'TRACE'
             if self.debugOption:
-                print(message.TTL,message.source[0],message.source[1],
+                print(message.ttl,message.source[0],message.source[1],
                       message.destination[0],message.destination[1])
             print(TTL+1, response.destination[0],response.destination[1])
             if self.destName != response.destination[0] or\
