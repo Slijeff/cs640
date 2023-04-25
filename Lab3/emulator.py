@@ -81,6 +81,7 @@ class Emulator:
         self.sequence_no = 0
         self.last_hello_sent = time.time()
         self.last_LSM_sent = time.time()
+        self.offline_repr: Address = ('125.125.125.125', -1)
         # maps (dst_addr, dst_ip) to (next_hop_addr, next_hop_ip)
         self.forwarding_table: Dict[Address, Address] = {}
         self.all_nodes_except_self: List[Address] = []
@@ -88,10 +89,11 @@ class Emulator:
         self.sequence_tracking: Dict[Address, int] = defaultdict(int)
 
         logging.basicConfig(
-            format='[%(asctime)s]  === %(levelname)s ===  %(message)s', level=logging.DEBUG)
+            format='[%(asctime)s]  === %(levelname)s ===  %(message)s', level=logging.INFO)
         logging.info("Emulator started on port %d", self.port)
 
         self.read_topology()
+        self.ttl = len(self.all_nodes_except_self) + 1
         self.neighbor_list = NeighborList(
             set(self.neighbors), self.timout)
         self.build_forwarding_table()
@@ -120,6 +122,8 @@ class Emulator:
         self.neighbors = topology
         logging.debug(
             f"Found {len(self.neighbors)} neighbors; Total of {len(self.all_nodes_except_self) + 1} nodes are in the network")
+        self.print_topology()
+        self.print_forwarding_table()
 
     def update_adj_list(self, msg: Message) -> bool:
         """
@@ -147,23 +151,41 @@ class Emulator:
                 logging.debug(f"Adjacency list changed")
 
         return True
+    
+    def print_topology(self) -> None:
+        print()
+        print("===  TOPOLOGY  ===")
+        for k,v in self.adj_list.items():
+            v = [str(s)[1:-1] for s in list(v)]
+            print(str(k)[1:-1], ' '.join(v))
+        print()
+    
+    def print_forwarding_table(self) -> None:
+        print()
+        print("===  FORWARDING TABLE  ===")
+        for k,v in self.forwarding_table.items():
+            if v != self.offline_repr:
+                print(str(k)[1:-1], str(v)[1:-1])
+        print()
 
     def build_forwarding_table(self, dead_node: Union[Address, None] = None) -> None:
         logging.info("Building forwarding table")
         if dead_node and not self.adj_list[self.address]:
             logging.debug("No neighbor is online, empty forwarding table")
-            self.forwarding_table[dead_node] = ("125.125.125.125", -1)
+            self.forwarding_table[dead_node] = self.offline_repr
+            self.print_topology()
+            self.print_forwarding_table()
             return
-        print("before build", self.forwarding_table)
-        print([x for x in self.all_nodes_except_self if x != dead_node])
         for node in [x for x in self.all_nodes_except_self if x != dead_node]:
             result = self.forward_search(self.address, node)
             if result:
                 self.forwarding_table[node] = result[1]
             else:
-                self.forwarding_table[node] = ("125.125.125.125", -1)
+                self.forwarding_table[node] = self.offline_repr
             if dead_node:
-                self.forwarding_table[dead_node] = ("125.125.125.125", -1)
+                self.forwarding_table[dead_node] = self.offline_repr
+        self.print_topology()
+        self.print_forwarding_table()
 
     def forward_search(self, start: Address, goal: Address) -> List[Address]:
         frontier = deque([(start, [start])])
@@ -263,14 +285,14 @@ class Emulator:
                 ))
             # Send LSM to neighbors
             if time.time() - self.last_LSM_sent >= self.lsm_interval:
-                print("adj_list: ", self.adj_list)
-                print("forwarding: ", self.forwarding_table)
+                # print("adj_list: ", self.adj_list)
+                # print("forwarding: ", self.forwarding_table)
                 self.last_LSM_sent = time.time()
                 self.broadcast_to_neighbors(Message(
                     source=self.address,
                     packet_type='LSM',
                     seq_num=self.sequence_no + 1,
-                    ttl=25,
+                    ttl=self.ttl,
                     neighbors=self.adj_list[self.address]
                 ))
                 self.sequence_no += 1
@@ -288,7 +310,7 @@ class Emulator:
                         source=self.address,
                         packet_type='LSM',
                         seq_num=self.sequence_no + 1,
-                        ttl=25,  # maximum of 20 nodes, put 25 just to be safe
+                        ttl=self.ttl,  # maximum of 20 nodes, put 25 just to be safe
                         neighbors=self.adj_list[self.address]
                     )
                 )
