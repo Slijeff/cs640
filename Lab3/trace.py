@@ -20,8 +20,9 @@ class trace:
         
     def startRouteTrace(self) ->None:
         responsed = False
-        time = time.time()
-        while responsed == False or diff<10:
+        T = time.time()
+        diff = 0
+        while responsed == False and diff<10:
             message = Message((self.IP,self.port),'TRACE',None,self.TTL,None,
                             (self.destName,self.destPort))
             self.sock.sendto(message.to_bytes(),(self.srcName,self.srcPort))
@@ -46,7 +47,7 @@ class trace:
                     self.TTL += 1
             else:
                 responsed = True
-            diff = time.time()-time
+            T = time.time()-time
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Network Emulator")
