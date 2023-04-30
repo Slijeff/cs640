@@ -2,7 +2,7 @@ import socket
 import pickle
 import argparse
 from emulator import Message
-
+import time
 class trace:
     def __init__(self, port: int, srcName: str, srcPort: int, destName: str, destPort: int, debugOption: int) -> None:
         self.IP = socket.gethostbyname(socket.gethostname())
@@ -20,19 +20,25 @@ class trace:
         
     def startRouteTrace(self) ->None:
         responsed = False
-        while responsed == False:
+        time = time.time()
+        while responsed == False or diff<10:
             message = Message((self.IP,self.port),'TRACE',None,self.TTL,None,
                             (self.destName,self.destPort))
             self.sock.sendto(message.to_bytes(),(self.srcName,self.srcPort))
             if self.debugOption:
-                print(message.ttl,message.source[0],message.source[1],
+                print("Sending ", message.ttl,message.source[0],message.source[1],
                      self.destName,self.destPort)
-            response, _ = self.sock.recvfrom(8192)
+            self.sock.settimeout(2)
+            try:
+                response, _ = self.sock.recvfrom(8192)
+            except TimeoutError:
+                continue
+            self.sock.settimeout(None)
             response = pickle.loads(response)
             assert type(response) == Message
             assert response.packet_type == 'TRACE'
             if self.debugOption:
-                print(message.ttl,message.source[0],message.source[1],
+                print("Receving", message.ttl,message.source[0],message.source[1],
                       message.destination[0],message.destination[1])
             print(self.TTL+1, response.source[0],response.source[1])
             if self.destName != response.source[0] or\
@@ -40,7 +46,7 @@ class trace:
                     self.TTL += 1
             else:
                 responsed = True
-            self.sock.settimeout(3)
+            diff = time.time()-time
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Network Emulator")
