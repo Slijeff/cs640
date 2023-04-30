@@ -75,9 +75,9 @@ class Emulator:
         # self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.address = (self.ip, self.port)
-        self.lsm_interval = 1  # in seconds
-        self.hello_interval = 1  # timeout for neighbor nodes
-        self.timout = 3
+        self.lsm_interval = 1.5  # in seconds
+        self.hello_interval = 1.5  # timeout for neighbor nodes
+        self.timout = 3.5
         self.sequence_no = 0
         self.last_hello_sent = time.time()
         self.last_LSM_sent = time.time()

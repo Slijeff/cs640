@@ -13,7 +13,7 @@ if __name__ == "__main__":
     
     proc_list = []
     for p in ports[::]:
-        prc = sub.Popen(["python", "emulator.py", "-p", p, "-f", topo_file], stdout=sub.PIPE)
+        prc = sub.Popen(["python3", "emulator.py", "-p", p, "-f", topo_file], stdout=sub.PIPE)
         proc_list.append(prc)
     try:
         proc_list[0].wait()
