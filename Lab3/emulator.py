@@ -250,7 +250,7 @@ class Emulator:
             assert msg.destination != None, "For Traceroute packet, the destination must be present"
             assert msg.ttl != None, "For Traceroute packet, the ttl must be present"
             print("Inside TRACE", msg.ttl)
-            if msg.ttl > 0:
+            if msg.ttl != 0:
                 # forward it
                 msg.ttl -= 1
                 print("Inside TRACE > 0", msg, self.forwarding_table[msg.destination])
@@ -260,7 +260,7 @@ class Emulator:
                 originator = msg.source
                 msg.destination = originator
                 msg.source = self.address
-                msg.ttl = 1
+                # msg.ttl = 0
                 # forward it
                 self.send_msg(msg, msg.destination)
 

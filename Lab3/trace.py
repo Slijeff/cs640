@@ -15,6 +15,7 @@ class trace:
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.IP, self.port))
+        self.sock.setblocking(False)
         self.TTL = 0
         self.startRouteTrace()
         
@@ -32,7 +33,7 @@ class trace:
             self.sock.settimeout(2)
             try:
                 response, _ = self.sock.recvfrom(8192)
-            except TimeoutError:
+            except:
                 continue
             self.sock.settimeout(None)
             response = pickle.loads(response)
@@ -47,7 +48,7 @@ class trace:
                     self.TTL += 1
             else:
                 responsed = True
-            T = time.time()-time
+            diff = time.time()-T
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Network Emulator")
